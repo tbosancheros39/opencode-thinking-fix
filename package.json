@@ -1,0 +1,34 @@
+{
+  "name": "opencode-thinking-fix",
+  "version": "1.0.0",
+  "description": "Fix DeepSeek/Kimi/GLM/MiMo reasoning_content 400 errors in OpenCode. Plugin + proxy + watchdog.",
+  "license": "MIT",
+  "author": "tbosancheros39",
+  "keywords": [
+    "opencode",
+    "deepseek",
+    "kimi",
+    "glm",
+    "reasoning",
+    "reasoning_content",
+    "thinking",
+    "proxy",
+    "plugin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tbosancheros39/opencode-thinking-fix.git"
+  },
+  "files": [
+    "plugins/",
+    "proxy/",
+    "tests/",
+    "watchdog/",
+    "systemd/",
+    "README.md",
+    ".gitignore"
+  ],
+  "scripts": {
+    "test": "node tests/test-plugin.js && node tests/test-proxy.js"
+  }
+}
