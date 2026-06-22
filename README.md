@@ -2,28 +2,48 @@
 
 [![npm version](https://img.shields.io/npm/v/opencode-thinking-fix)](https://www.npmjs.com/package/opencode-thinking-fix)
 [![npm downloads](https://img.shields.io/npm/dm/opencode-thinking-fix)](https://www.npmjs.com/package/opencode-thinking-fix)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/tbosancheros39/opencode-thinking-fix/blob/main/LICENSE.md)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org/)
 
 ```bash
 npm install opencode-thinking-fix
 ```
 
-You ask DeepSeek or Kimi a question. It picks a tool, calls it, works fine. Then you ask a follow-up and it dies:
+> Fix for the `reasoning_content` 400 error that kills multi-turn conversations with DeepSeek, Kimi, GLM, and MiMo in OpenCode.
+
+## Table of Contents
+
+- [What problem this fixes](#what-problem-this-fixes)
+- [Option 1: Plugin (stops the crashes)](#option-1-plugin-stops-the-crashes)
+- [Option 2: Proxy (replays real reasoning)](#option-2-proxy-replays-real-reasoning)
+- [Option 3: Watchdog (auto-recovery)](#option-3-watchdog-auto-recovery)
+- [How they work together](#how-they-work-together)
+- [Affected models](#affected-models)
+- [Model routing](#model-routing)
+- [Is it working?](#is-it-working)
+- [Running tests](#running-tests)
+- [This bug is everywhere](#this-bug-is-everywhere)
+- [Files in this repo](#files-in-this-repo)
+
+---
+
+## What problem this fixes
+
+You ask DeepSeek a question. It picks a tool, calls it, works fine. Then you ask a follow-up and you get this:
 
 ```
 HTTP 400: The reasoning_content in the thinking mode must be passed back to the API
 ```
 
-Here's what's happening. DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) requires that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. Their [docs](https://api-docs.deepseek.com/guides/thinking_mode) spell this out directly:
+DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) say it clearly: if you do not pass back `reasoning_content` correctly, the API returns a 400 error.
 
-> *"Between two user messages, if the model performed a tool call, the intermediate assistant's reasoning_content must participate in the context concatenation and must be passed back to the API in all subsequent user interaction turns. If your code does not correctly pass back reasoning_content, the API will return a 400 error."*
-
-OpenCode's provider layer strips it. Three PRs tried to fix this upstream ([#24250](https://github.com/anomalyco/opencode/pull/24250), [#24428](https://github.com/anomalyco/opencode/pull/24428), [#24895](https://github.com/anomalyco/opencode/pull/24895)) — none got merged. The field is non-standard per OpenAI, so both OpenCode and the AI SDK punt on it.
+OpenCode's provider layer drops this field. Three upstream PRs ([#24250](https://github.com/anomalyco/opencode/pull/24250), [#24428](https://github.com/anomalyco/opencode/pull/24428), [#24895](https://github.com/anomalyco/opencode/pull/24895)) tried to fix it. None merged. The field is non-standard per OpenAI, so both OpenCode and the AI SDK ignore it.
 
 This repo fixes it. Three layers, pick what you need.
 
 ---
 
-## Option 1: the plugin (stops the crashes)
+## Option 1: plugin (stops the crashes)
 
 One file. Drop it in `~/.config/opencode/plugins/` and restart:
 
@@ -32,21 +52,21 @@ mkdir -p ~/.config/opencode/plugins
 cp plugins/opencode-thinking-fix-universal.ts ~/.config/opencode/plugins/
 ```
 
-What it does: scans outgoing messages for any assistant turn that already has `reasoning_content`. If it finds one (meaning you're using a reasoning model), it adds `reasoning_content: ""` to every assistant turn missing it. If it finds nothing (Qwen, GPT, Claude — they never produce this field), it does nothing.
+It scans outgoing messages for any assistant turn that already has `reasoning_content`. If it finds one (meaning you are using a reasoning model), it adds `reasoning_content: ""` to every assistant turn missing it. If it finds nothing (Qwen, GPT, Claude — they never produce this field), it does nothing.
 
 It also handles `reasoning` for the OpenCode Go provider, and patches empty `content` fields that OpenAI-compatible SDKs sometimes omit.
 
 No config file changes. No build step. OpenCode compiles `.ts` plugins when it starts.
 
-**The catch:** the plugin fills in empty strings, not your model's actual prior thinking. DeepSeek, Kimi K2.5/K2.6, GLM, and MiMo accept empty strings fine — your conversation works but the model doesn't see its earlier reasoning. Kimi K2.7 Code rejects empty strings entirely, it needs the real text.
+**The catch:** the plugin fills in empty strings, not your model's actual prior thinking. DeepSeek, Kimi K2.5/K2.6, GLM, and MiMo accept empty strings fine — your conversation works but the model does not see its earlier reasoning. Kimi K2.7 Code rejects empty strings entirely, it needs the real text.
 
 ---
 
-## Option 2: the proxy (replays real reasoning)
+## Option 2: proxy (replays real reasoning)
 
 A Node.js proxy that catches API responses as they come back, pulls out the actual `reasoning_content` text, and caches it in memory. On the next request, it injects that real text back into the conversation history instead of empty strings.
 
-Your model sees its full chain-of-thought from turn 1 on every subsequent turn. Noticeable difference on complex multi-turn coding sessions.
+Your model sees its full chain-of-thought from turn 1 on every subsequent turn. The difference is noticeable on complex multi-turn coding sessions.
 
 ### Two-proxy architecture
 
@@ -95,7 +115,7 @@ Then point OpenCode at it — in your `opencode.json`:
 
 Zero npm dependencies. It uses `http`, `https`, and `url` — nothing else.
 
-**Kimi K2.7 Code and OpenCode Go need this.** The rest of the models benefit from it but don't technically require it.
+**Kimi K2.7 Code and OpenCode Go need this.** The rest of the models benefit from it but do not technically require it.
 
 ---
 
@@ -121,7 +141,7 @@ OpenCode → [plugin patches missing reasoning_content/reasoning]
          → API
 ```
 
-The plugin is the safety net. If the proxy goes down, the plugin still injects empty strings so you don't get 400s. If the proxy is up, its cached text takes priority because the plugin sees the field is already filled in. Either way, your conversation doesn't break.
+The plugin is the safety net. If the proxy goes down, the plugin still injects empty strings so you do not get 400s. If the proxy is up, its cached text takes priority because the plugin sees the field is already filled in. Either way, your conversation does not break.
 
 ---
 
@@ -135,7 +155,7 @@ The plugin is the safety net. If the proxy goes down, the plugin still injects e
 | GLM-5.x / Zhipu | Yes | Nice to have | Accepts `""` |
 | MiMo V2.5 / MiniMax | Yes | Nice to have | Accepts `""` |
 | OpenCode Go | Yes | Required | Uses `reasoning` field |
-| Qwen, GPT, Claude, Gemini, Llama, Mistral | No | No | Don't use reasoning_content |
+| Qwen, GPT, Claude, Gemini, Llama, Mistral | No | No | Do not use reasoning_content |
 
 ---
 
@@ -163,7 +183,7 @@ Unknown models fall back to `https://api.deepseek.com` with reasoning disabled.
 
 ## Is it working?
 
-Turn 1 won't show anything — there's no history to patch yet. That's normal.
+Turn 1 will not show anything — there is no history to patch yet. That is normal.
 
 Turn 2+, check the console:
 
@@ -178,7 +198,7 @@ Turn 2+, check the console:
 [Cache] session abcdefgh: replayed reasoning for turn 0 (1842 chars)
 ```
 
-If nothing shows up, either it's a non-reasoning model (correct) or the plugin didn't load (check for `[ThinkingFix] Plugin loaded` at startup).
+If nothing shows up, either it is a non-reasoning model (correct) or the plugin did not load (check for `[ThinkingFix] Plugin loaded` at startup).
 
 Quick proxy health check:
 
@@ -198,7 +218,7 @@ journalctl --user -u reasoning-cache-go.service -f
 
 ---
 
-## Running the test suite
+## Running tests
 
 ```bash
 npm test
@@ -215,7 +235,7 @@ The proxy tests cover 15 cases: route resolution for all model prefixes, `patchR
 
 ## This bug is everywhere
 
-OpenCode isn't the only tool that drops `reasoning_content`. Here's a partial list of places this same bug shows up:
+OpenCode is not the only tool that drops `reasoning_content`. Here is a partial list of places this same bug shows up:
 
 **OpenCode (anomalyco/opencode):** [#24190](https://github.com/anomalyco/opencode/issues/24190), [#24104](https://github.com/anomalyco/opencode/issues/24104), [#24722](https://github.com/anomalyco/opencode/issues/24722), [#25311](https://github.com/anomalyco/opencode/issues/25311), [#25134](https://github.com/anomalyco/opencode/issues/25134), [#25000](https://github.com/anomalyco/opencode/issues/25000), [#24124](https://github.com/anomalyco/opencode/issues/24124), [#24130](https://github.com/anomalyco/opencode/issues/24130), [#24261](https://github.com/anomalyco/opencode/issues/24261), [#24442](https://github.com/anomalyco/opencode/issues/24442), [#24569](https://github.com/anomalyco/opencode/issues/24569)
 
