@@ -1,5 +1,12 @@
 # opencode-thinking-fix
 
+[![npm version](https://img.shields.io/npm/v/opencode-thinking-fix)](https://www.npmjs.com/package/opencode-thinking-fix)
+[![npm downloads](https://img.shields.io/npm/dm/opencode-thinking-fix)](https://www.npmjs.com/package/opencode-thinking-fix)
+
+```bash
+npm install opencode-thinking-fix
+```
+
 You ask DeepSeek or Kimi a question. It picks a tool, calls it, works fine. Then you ask a follow-up and it dies:
 
 ```
@@ -138,6 +145,7 @@ The proxy auto-routes by model name prefix. All 15 supported prefixes:
 
 | Prefix | Upstream | Reasoning |
 |---|---|---|
+| `deepseek-v4-pro` | `https://api.deepseek.com` | Yes |
 | `deepseek` | `https://api.deepseek.com` | Yes |
 | `kimi`, `moonshot` | `https://api.moonshot.ai/v1` | Yes |
 | `glm`, `zhipu` | `https://open.bigmodel.cn/api/paas/v4` | Yes |
