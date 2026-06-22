@@ -37,6 +37,7 @@ const UPSTREAM_URL = process.env.UPSTREAM_URL || ''
 // Each entry: { base: upstream API base URL, reasoning: does this model emit reasoning_content? }
 // Prefix-based matching: "deepseek-v4-pro" matches the "deepseek" prefix
 const ROUTES = {
+  'deepseek-v4-pro': { base: 'https://api.deepseek.com',       reasoning: true  },
   deepseek:   { base: 'https://api.deepseek.com',              reasoning: true  },
   kimi:       { base: 'https://api.moonshot.ai/v1',            reasoning: true  },
   moonshot:   { base: 'https://api.moonshot.ai/v1',            reasoning: true  },
