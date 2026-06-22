@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenCode Reasoning Cache Proxy
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/reasoning-cache-proxy
+ExecStart=/usr/bin/node %h/reasoning-cache-proxy/proxy.js
+Restart=on-failure
+RestartSec=5
+Environment=PORT=3457
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

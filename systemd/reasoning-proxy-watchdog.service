@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenCode Proxy Watchdog — auto-restart if proxies die
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/reasoning-cache-proxy/watchdog.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
