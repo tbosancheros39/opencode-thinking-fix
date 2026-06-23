@@ -1,7 +1,8 @@
 {
   "name": "opencode-thinking-fix",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Fix DeepSeek/Kimi/GLM/MiMo reasoning_content 400 errors in OpenCode. Plugin + proxy + watchdog.",
+  "type": "module",
   "license": "MIT",
   "author": "tbosancheros39",
   "keywords": [
@@ -19,35 +20,36 @@
     "type": "git",
     "url": "git+https://github.com/tbosancheros39/opencode-thinking-fix.git"
   },
-  "oc-plugin": [
-    "server",
-    "tui"
-  ],
   "main": "./plugins/opencode-thinking-fix-universal.ts",
   "exports": {
-    "./server": {
-      "import": "./plugins/opencode-thinking-fix-universal.ts",
-      "types": "./plugins/opencode-thinking-fix-universal.ts"
-    },
-    "./tui": {
-      "import": "./plugins/opencode-thinking-fix-tui.ts",
-      "types": "./plugins/opencode-thinking-fix-tui.ts"
-    }
+    ".": "./plugins/opencode-thinking-fix-universal.ts",
+    "./server": "./plugins/opencode-thinking-fix-universal.ts"
   },
   "files": [
-    "plugins/",
-    "proxy/",
-    "tests/",
-    "watchdog/",
-    "systemd/",
+    "plugins/opencode-thinking-fix-universal.ts",
+    "proxy/proxy.js",
+    "systemd/reasoning-cache.service",
+    "systemd/reasoning-cache-go.service",
+    "systemd/reasoning-proxy-watchdog.service",
+    "watchdog/watchdog.sh",
+    "tests/test-plugin.js",
+    "tests/test-proxy.js",
     "README.md",
-    "LICENSE.md",
-    ".gitignore"
+    "CHANGELOG.md",
+    "LICENSE.md"
   ],
   "scripts": {
     "test": "node tests/test-plugin.js && node tests/test-proxy.js"
   },
-  "dependencies": {
-    "@opencode-ai/plugin": "^1.3.0"
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
   }
 }
