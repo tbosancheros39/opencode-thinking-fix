@@ -257,16 +257,25 @@ const server = http.createServer((req, res) => {
     // Patch request body if this is a reasoning provider
     let bodyToSend = rawBody
     if (shouldPatch && rawBody.length > 0) {
-      // Inject reasoning_split for MiniMax models (avoids <think> tags in content)
-      const isMiniMax = modelName.toLowerCase().startsWith('minimax') || modelName.toLowerCase().startsWith('mimo')
       let bodyStr = rawBody.toString('utf8')
-      if (isMiniMax) {
-        try {
-          const bj = JSON.parse(bodyStr)
+      try {
+        const bj = JSON.parse(bodyStr)
+
+        // Strip unsupported params for Kimi/Moonshot thinking mode
+        const isKimi = modelName.toLowerCase().startsWith('kimi') || modelName.toLowerCase().startsWith('moonshot')
+        if (isKimi) {
+          delete bj.top_p
+          delete bj.top_k
+        }
+
+        // Inject reasoning_split for MiniMax models (avoids <think> tags in content)
+        const isMiniMax = modelName.toLowerCase().startsWith('minimax') || modelName.toLowerCase().startsWith('mimo')
+        if (isMiniMax) {
           bj.reasoning_split = true
-          bodyStr = JSON.stringify(bj)
-        } catch { /* pass */ }
-      }
+        }
+
+        bodyStr = JSON.stringify(bj)
+      } catch { /* pass */ }
       const patched = patchRequestBody(bodyStr, sessionId)
       bodyToSend = Buffer.from(patched, 'utf8')
     }
