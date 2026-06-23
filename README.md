@@ -10,6 +10,8 @@ npm install opencode-thinking-fix
 ```
 
 > Fix for the `reasoning_content` 400 error that kills multi-turn conversations with DeepSeek, Kimi, GLM, MiMo, and MiniMax-M3 in OpenCode.
+>
+> Docs: [OpenCode Plugins](https://opencode.ai/docs/plugins)
 
 ---
 
@@ -17,13 +19,15 @@ npm install opencode-thinking-fix
 
 **This is an OpenCode plugin. Install it inside OpenCode — no terminal needed.**
 
-### Method 1: TUI (press Ctrl+P while OpenCode is running)
+### Method 1: TUI (press `Ctrl+P` while OpenCode is running)
 
-1. Press `Ctrl+P` to open the command palette
-2. Type `install plugin` and press Enter
-3. Press `Tab` to switch scope to **Global** (recommended — works across all projects)
-4. Type `opencode-thinking-fix`
-5. Press Enter — done. Restart OpenCode.
+1. Press `Ctrl+P` to open the command palette.
+2. Type `install plugin` and press `Enter`.
+3. Press `Tab` to switch the install scope to **Global** (recommended — works across all projects).
+4. Type `opencode-thinking-fix`.
+5. Press `Enter`. Restart OpenCode.
+
+You should see `[ThinkingFix] Plugin loaded — universal reasoning_content fix active` at startup.
 
 ### Method 2: CLI (shell command)
 
@@ -31,13 +35,15 @@ npm install opencode-thinking-fix
 opencode plugin opencode-thinking-fix
 ```
 
-For specific version:
+For a specific version:
 
 ```bash
-opencode plugin opencode-thinking-fix@1.1.0
+opencode plugin opencode-thinking-fix@1.1.4
 ```
 
-### Method 3: Manual config (add to opencode.json)
+Restart OpenCode after installing.
+
+### Method 3: Manual config (add to `opencode.json`)
 
 ```json
 {
@@ -51,7 +57,9 @@ Config file location:
 
 Restart OpenCode after adding. You should see `[ThinkingFix] Plugin loaded` at startup.
 
-## Table of Contents
+See also: [OpenCode plugin docs](https://opencode.ai/docs/plugins)
+
+---
 
 - [What problem this fixes](#what-problem-this-fixes)
 - [Option 1: Plugin (stops the crashes)](#option-1-plugin-stops-the-crashes)

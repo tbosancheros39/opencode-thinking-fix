@@ -155,9 +155,13 @@ function createStreamParser(sessionId, onComplete) {
       buffer += chunk.toString()
       const lines = buffer.split('\n')
       buffer = lines.pop() // keep incomplete last line
+      const outLines = []
 
       for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
+        if (!line.startsWith('data: ')) {
+          outLines.push(line)
+          continue
+        }
         const data = line.slice(6).trim()
         if (data === '[DONE]') {
           // Flush accumulated reasoning for this turn
@@ -165,12 +169,16 @@ function createStreamParser(sessionId, onComplete) {
             onComplete(assistantIndex, reasoningBuffer)
             reasoningBuffer = ''
           }
+          outLines.push(line)
           continue
         }
         try {
           const parsed = JSON.parse(data)
           const delta = parsed.choices?.[0]?.delta
-          if (!delta) continue
+          if (!delta) {
+            outLines.push(line)
+            continue
+          }
 
           // reasoning_content delta (DeepSeek/Kimi/GLM/MiniMax)
           if (typeof delta.reasoning_content === 'string') {
@@ -194,6 +202,17 @@ function createStreamParser(sessionId, onComplete) {
             inReasoning = true
           }
 
+          // content may contain embedded <think> tags when reasoning_split is not
+          // honored (MiniMax fallback). Extract them into reasoningBuffer.
+          if (typeof delta.content === 'string') {
+            const thinkMatch = delta.content.match(/<think>([\s\S]*?)<\/think>/)
+            if (thinkMatch) {
+              reasoningBuffer += thinkMatch[1]
+              inReasoning = true
+              delta.content = delta.content.replace(/<think>[\s\S]*?<\/think>/, '').trimStart()
+            }
+          }
+
           // finish_reason means the assistant turn is complete
           // Only flush here — NOT on content appearance (interleaved thinking
           // emits reasoning AFTER content on GLM-5+ and MiniMax-M3)
@@ -205,10 +224,16 @@ function createStreamParser(sessionId, onComplete) {
             }
             assistantIndex++
           }
+
+          // Re-serialize the possibly-modified chunk and forward it
+          outLines.push('data: ' + JSON.stringify(parsed))
         } catch {
-          // malformed SSE chunk, skip
+          // malformed SSE chunk, forward unchanged
+          outLines.push(line)
         }
       }
+
+      return outLines.join('\n') + '\n'
     },
     flush() {
       if (reasoningBuffer) {
@@ -240,16 +265,22 @@ const server = http.createServer((req, res) => {
     // Determine upstream route
     let modelName = ''
     let routeTarget = DEFAULT_ROUTE
-    if (UPSTREAM_URL) {
-      // Fixed upstream mode (e.g. OpenCode Go)
-      routeTarget = { base: UPSTREAM_URL, reasoning: true }
-    } else if (isPost && isJson && rawBody.length > 0) {
-      // Model-based routing mode
+
+    // Always parse model name from body so provider-specific patches work
+    // even in fixed-upstream mode (OpenCode Go)
+    if (isPost && isJson && rawBody.length > 0) {
       try {
         const bodyJson = JSON.parse(rawBody.toString('utf8'))
         modelName = bodyJson.model || ''
-        routeTarget = route(modelName)
-      } catch { /* body not JSON yet, use defaults */ }
+      } catch { /* body not JSON yet */ }
+    }
+
+    if (UPSTREAM_URL) {
+      // Fixed upstream mode (e.g. OpenCode Go)
+      routeTarget = { base: UPSTREAM_URL, reasoning: true }
+    } else {
+      // Model-based routing mode
+      routeTarget = route(modelName)
     }
     const upstream = url.parse(routeTarget.base)
     const shouldPatch = isPost && isJson && routeTarget.reasoning
@@ -329,8 +360,9 @@ const server = http.createServer((req, res) => {
         })
 
         proxyRes.on('data', chunk => {
-          parser.feed(chunk)
-          res.write(chunk) // forward chunk immediately (no buffering)
+          // parser.feed returns the (possibly modified) SSE text to forward
+          const forwardChunk = parser.feed(chunk)
+          res.write(forwardChunk)
         })
 
         proxyRes.on('end', () => {
