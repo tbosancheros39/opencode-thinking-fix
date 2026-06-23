@@ -39,7 +39,7 @@ opencode plugin opencode-thinking-fix
 For a specific version:
 
 ```bash
-opencode plugin opencode-thinking-fix@1.1.4
+opencode plugin opencode-thinking-fix@1.1.9
 ```
 
 Restart OpenCode after installing.
