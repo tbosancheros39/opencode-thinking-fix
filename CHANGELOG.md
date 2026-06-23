@@ -2,6 +2,13 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## [1.1.8] - 2026-06-23
+
+### Fixed
+- **package.json aligned with project Documents**: description shortened, `homepage` added, `peerDependenciesMeta.optional` set to `false`, `repository.url` normalized, keywords added (`mimo`, `minimax`), duplicate keywords removed.
+- **Stale `node_modules/` deleted** from repo (was committed accidentally).
+- **Stale npm cache entry** (`npm i opencode-thinking-fix`) removed from `~/.cache/opencode/packages/`.
+
 ## [1.1.7] - 2026-06-23
 
 ### Fixed
