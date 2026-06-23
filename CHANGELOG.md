@@ -2,6 +2,11 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## [1.1.6] - 2026-06-23
+
+### Fixed
+- Exposed a no-op TUI plugin target so installation via `Ctrl+P` / `opencode plugin opencode-thinking-fix` completes without the "Package has no TUI target" warning.
+
 ## [1.1.5] - 2026-06-23
 
 ### Fixed
