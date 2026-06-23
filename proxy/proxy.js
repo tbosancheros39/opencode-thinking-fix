@@ -172,7 +172,7 @@ function createStreamParser(sessionId, onComplete) {
           const delta = parsed.choices?.[0]?.delta
           if (!delta) continue
 
-          // reasoning_content delta (DeepSeek/Kimi/GLM native)
+          // reasoning_content delta (DeepSeek/Kimi/GLM/MiniMax)
           if (typeof delta.reasoning_content === 'string') {
             reasoningBuffer += delta.reasoning_content
             inReasoning = true
@@ -194,16 +194,9 @@ function createStreamParser(sessionId, onComplete) {
             inReasoning = true
           }
 
-          // When content starts after reasoning, the reasoning block is done
-          if (typeof delta.content === 'string' && delta.content && inReasoning) {
-            if (reasoningBuffer) {
-              onComplete(assistantIndex, reasoningBuffer)
-              reasoningBuffer = ''
-              inReasoning = false
-            }
-          }
-
           // finish_reason means the assistant turn is complete
+          // Only flush here — NOT on content appearance (interleaved thinking
+          // emits reasoning AFTER content on GLM-5+ and MiniMax-M3)
           if (parsed.choices?.[0]?.finish_reason) {
             if (reasoningBuffer) {
               onComplete(assistantIndex, reasoningBuffer)
@@ -264,7 +257,17 @@ const server = http.createServer((req, res) => {
     // Patch request body if this is a reasoning provider
     let bodyToSend = rawBody
     if (shouldPatch && rawBody.length > 0) {
-      const patched = patchRequestBody(rawBody.toString('utf8'), sessionId)
+      // Inject reasoning_split for MiniMax models (avoids <think> tags in content)
+      const isMiniMax = modelName.toLowerCase().startsWith('minimax') || modelName.toLowerCase().startsWith('mimo')
+      let bodyStr = rawBody.toString('utf8')
+      if (isMiniMax) {
+        try {
+          const bj = JSON.parse(bodyStr)
+          bj.reasoning_split = true
+          bodyStr = JSON.stringify(bj)
+        } catch { /* pass */ }
+      }
+      const patched = patchRequestBody(bodyStr, sessionId)
       bodyToSend = Buffer.from(patched, 'utf8')
     }
 

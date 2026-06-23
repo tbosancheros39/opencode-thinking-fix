@@ -163,6 +163,8 @@ Then point OpenCode at it — in your `opencode.json`:
 
 Zero npm dependencies. It uses `http`, `https`, and `url` — nothing else.
 
+**Interleaved thinking support:** GLM-5+ and MiniMax-M3 emit reasoning AFTER content in the same turn (interleaved thinking between tool calls). The proxy accumulates ALL reasoning across an entire assistant turn and flushes only on `finish_reason` — never on `delta.content` arrival. This prevents split/lost reasoning blocks.
+
 **Kimi K2.7 Code and OpenCode Go need this.** The rest of the models benefit from it but do not technically require it.
 
 ---
@@ -202,7 +204,7 @@ The plugin is the safety net. If the proxy goes down, the plugin still injects e
 | **Kimi K2.7 Code** | **Not enough alone** | **Required** | Needs real text |
 | GLM-5.x / Zhipu | Yes | Nice to have | Accepts `""` |
 | MiMo V2.5 / MiniMax | Yes | Nice to have | Accepts `""` (default mode embeds `<think>` in `content`) |
-| **MiniMax-M3** | Yes | **Recommended** | `reasoning_details[]` array format; ~40% quality loss if stripped |
+| **MiniMax-M3** | Yes | **Recommended** | `reasoning_details[]` array; ~40% quality loss if stripped. Proxy injects `reasoning_split:true` to keep thinking separate from content. |
 | OpenCode Go | Yes | Required | Uses `reasoning` field |
 | Qwen, GPT, Claude, Gemini, Llama, Mistral | No | No | No reasoning_content |
 
