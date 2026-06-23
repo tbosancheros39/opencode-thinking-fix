@@ -115,6 +115,16 @@ function patchRequestBody(body, sessionId) {
       modified = true
     }
 
+    // MiniMax-M3 reasoning_details array format (reasoning_split: true)
+    if (!msg.reasoning_details && !msg.reasoning_content) {
+      const cached = sessionCache.get(assistantIndex)
+      if (cached) {
+        msg.reasoning_details = [{ text: cached, type: 'thinking' }]
+        console.log(`[Cache] session ${sessionId.slice(-8)}: replayed reasoning_details for turn ${assistantIndex} (${cached.length} chars)`)
+        modified = true
+      }
+    }
+
     // OpenCode Go uses reasoning instead of reasoning_content
     if (!msg.reasoning) {
       const cached = sessionCache.get(assistantIndex)
@@ -165,6 +175,16 @@ function createStreamParser(sessionId, onComplete) {
           // reasoning_content delta (DeepSeek/Kimi/GLM native)
           if (typeof delta.reasoning_content === 'string') {
             reasoningBuffer += delta.reasoning_content
+            inReasoning = true
+          }
+
+          // reasoning_details array (MiniMax-M3 with reasoning_split: true)
+          if (Array.isArray(delta.reasoning_details)) {
+            for (const detail of delta.reasoning_details) {
+              if (typeof detail.text === 'string') {
+                reasoningBuffer += detail.text
+              }
+            }
             inReasoning = true
           }
 
