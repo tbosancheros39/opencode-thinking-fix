@@ -2,6 +2,20 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## [1.1.9] - 2026-06-23
+
+### Added
+- **File-based logging**: JSON-lines log at `~/.local/share/opencode/thinking-fix.log` — captures `plugin_loaded`, `inspect`, `patched`, and `error` events with timestamps.
+- **`inspect` event**: logs field coverage on every request — `isReasoningModel`, `assistantTurns`, `missingContent`, `missingReasoningContent`, `missingReasoning` — proving plugin activity even when zero patches needed.
+- **Console fallback**: `writeLog` catches file write failures and emits `console.error` so failures are visible somewhere.
+
+### Changed
+- `client.app.log()` calls now use `await` for proper async handling.
+- Removal of `hook_fired` debug artifact — replaced by structured `inspect` event.
+
+### Fixed
+- **TUI install flow**: Ctrl+P "install plugin" → type `opencode-thinking-fix` no longer errors. Server-only plugin with bare `export default` properly installs via TUI and CLI without TUI target warnings.
+
 ## [1.1.8] - 2026-06-23
 
 ### Fixed
