@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/opencode-thinking-fix)](https://www.npmjs.com/package/opencode-thinking-fix)
 [![Test](https://github.com/tbosancheros39/opencode-thinking-fix/actions/workflows/test.yml/badge.svg)](https://github.com/tbosancheros39/opencode-thinking-fix/actions/workflows/test.yml)
 [![npm downloads](https://img.shields.io/npm/dm/opencode-thinking-fix)](https://www.npmjs.com/package/opencode-thinking-fix)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/tbosancheros39/opencode-thinking-fix/blob/main/LICENSE.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/tbosancheros39/opencode-thinking-fix/blob/master/LICENSE.md)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org/)
 
 ```bash
@@ -321,9 +321,9 @@ OpenCode is not the only tool that drops `reasoning_content`. Here is a partial 
 
 ```
 plugins/
-  opencode-thinking-fix-universal.ts   # self-detection plugin (106 lines)
+  opencode-thinking-fix-universal.ts   # self-detection plugin (175 lines)
 proxy/
-  proxy.js                              # reasoning cache proxy (333 lines, zero deps)
+  proxy.js                              # reasoning cache proxy (409 lines, zero deps)
 tests/
   test-plugin.js                        # plugin unit tests (228 lines, 12 cases)
   test-proxy.js                         # proxy unit tests (359 lines, 15 cases)
