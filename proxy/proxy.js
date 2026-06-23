@@ -262,10 +262,21 @@ const server = http.createServer((req, res) => {
         const bj = JSON.parse(bodyStr)
 
         // Strip unsupported params for Kimi/Moonshot thinking mode
+        // Moonshot hardcodes sampling params for thinking models and rejects
+        // explicit values. Docs: https://platform.kimi.ai/docs/api/models-overview
         const isKimi = modelName.toLowerCase().startsWith('kimi') || modelName.toLowerCase().startsWith('moonshot')
         if (isKimi) {
+          delete bj.temperature
           delete bj.top_p
           delete bj.top_k
+          delete bj.presence_penalty
+          delete bj.frequency_penalty
+          delete bj.n
+          // K2.7 thinking is always on; do not send thinking/reasoning_effort controls
+          if (modelName.toLowerCase().startsWith('kimi-k2.7')) {
+            delete bj.thinking
+            delete bj.reasoning_effort
+          }
         }
 
         // Inject reasoning_split for MiniMax models (avoids <think> tags in content)
