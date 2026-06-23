@@ -2,6 +2,13 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## [1.1.7] - 2026-06-23
+
+### Fixed
+- **TUI plugin loading error**: removed broken `opencode-thinking-fix-tui.ts`. OpenCode tried to load it as a TUI plugin at startup and failed because it didn't export `{ tui() }`. Package is now server-only.
+- **Plugin default export**: switched from v1 format (`{ server: Plugin }`) to v0 legacy format (bare `export default Plugin`), matching the proven opencode-wakatime pattern.
+- **package.json**: removed `oc-plugin` field, removed `dependencies`, moved `@opencode-ai/plugin` to optional `peerDependencies` (import is type-only, no runtime dep needed), whitelisted individual files instead of entire directories.
+
 ## [1.1.6] - 2026-06-23
 
 ### Fixed

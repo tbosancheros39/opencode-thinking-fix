@@ -1,4 +1,4 @@
-import type { Plugin, PluginModule } from '@opencode-ai/plugin'
+import type { Plugin } from '@opencode-ai/plugin'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIRMED FACTS (cross-validated across DeepSeek V4 Pro, Claude MAX, Kimi
@@ -103,4 +103,4 @@ export const ThinkingFixPlugin: Plugin = async ({ client }) => {
   }
 }
 
-export default { server: ThinkingFixPlugin } satisfies PluginModule
+export default ThinkingFixPlugin
