@@ -9,7 +9,47 @@
 npm install opencode-thinking-fix
 ```
 
-> Fix for the `reasoning_content` 400 error that kills multi-turn conversations with DeepSeek, Kimi, GLM, and MiMo in OpenCode.
+> Fix for the `reasoning_content` 400 error that kills multi-turn conversations with DeepSeek, Kimi, GLM, MiMo, and MiniMax-M3 in OpenCode.
+
+---
+
+## Quick Install
+
+**This is an OpenCode plugin. Install it inside OpenCode — no terminal needed.**
+
+### Method 1: TUI (press Ctrl+P while OpenCode is running)
+
+1. Press `Ctrl+P` to open the command palette
+2. Type `install plugin` and press Enter
+3. Press `Tab` to switch scope to **Global** (recommended — works across all projects)
+4. Type `opencode-thinking-fix`
+5. Press Enter — done. Restart OpenCode.
+
+### Method 2: CLI (shell command)
+
+```bash
+opencode plugin opencode-thinking-fix
+```
+
+For specific version:
+
+```bash
+opencode plugin opencode-thinking-fix@1.1.0
+```
+
+### Method 3: Manual config (add to opencode.json)
+
+```json
+{
+  "plugin": ["opencode-thinking-fix"]
+}
+```
+
+Config file location:
+- **Linux/macOS:** `~/.config/opencode/opencode.json` (global) or `.opencode/opencode.json` (project)
+- **Windows:** `%APPDATA%/OpenCode/opencode.json` (global) or `.opencode/opencode.json` (project)
+
+Restart OpenCode after adding. You should see `[ThinkingFix] Plugin loaded` at startup.
 
 ## Table of Contents
 
@@ -45,7 +85,13 @@ This repo fixes it. Three layers, pick what you need.
 
 ## Option 1: plugin (stops the crashes)
 
-One file. Drop it in `~/.config/opencode/plugins/` and restart:
+### Install via npm (recommended)
+
+See [Quick Install](#quick-install) above — use OpenCode TUI (`Ctrl+P`) or CLI (`opencode plugin opencode-thinking-fix`).
+
+### Manual install (for local development)
+
+Drop the plugin file in your OpenCode plugins directory and restart:
 
 ```bash
 mkdir -p ~/.config/opencode/plugins
@@ -80,12 +126,14 @@ The proxy runs on **two ports**:
 Port 3457 auto-routes based on model name using the built-in route table. Port 3458 is a fixed-upstream proxy specifically for the OpenCode Go provider, which uses `delta.reasoning` (not `reasoning_content`) in its SSE streams. Both are handled by the same `proxy.js` binary — just different environment variables.
 
 ```bash
-# run port 3457 (direct providers)
+# Linux / macOS / Windows (Node.js required)
 node proxy/proxy.js
 
-# run port 3458 (OpenCode Go)
+# OpenCode Go proxy
 PORT=3458 UPSTREAM_URL=https://opencode.ai/zen/go/v1 node proxy/proxy.js
 ```
+
+> **Windows PowerShell:** use `$env:PORT=3457; node proxy/proxy.js` (PowerShell) or `set PORT=3457 && node proxy/proxy.js` (CMD).
 
 ### Install as systemd services (auto-start at boot)
 
@@ -153,9 +201,10 @@ The plugin is the safety net. If the proxy goes down, the plugin still injects e
 | Kimi K2.5 / K2.6 | Yes | Nice to have | Accepts `""` |
 | **Kimi K2.7 Code** | **Not enough alone** | **Required** | Needs real text |
 | GLM-5.x / Zhipu | Yes | Nice to have | Accepts `""` |
-| MiMo V2.5 / MiniMax | Yes | Nice to have | Accepts `""` |
+| MiMo V2.5 / MiniMax | Yes | Nice to have | Accepts `""` (default mode embeds `<think>` in `content`) |
+| **MiniMax-M3** | Yes | **Recommended** | `reasoning_details[]` array format; ~40% quality loss if stripped |
 | OpenCode Go | Yes | Required | Uses `reasoning` field |
-| Qwen, GPT, Claude, Gemini, Llama, Mistral | No | No | Do not use reasoning_content |
+| Qwen, GPT, Claude, Gemini, Llama, Mistral | No | No | No reasoning_content |
 
 ---
 
@@ -277,4 +326,40 @@ systemd/
 
 ## Tested on
 
-OpenCode v1.17.9, Kubuntu 24.04, DeepSeek V4 Pro, OpenCode Go.
+| Platform | Plugin | Proxy | Watchdog | Systemd |
+|----------|--------|-------|----------|---------|
+| **Linux** (Kubuntu 24.04) | ✅ | ✅ | ✅ (bash) | ✅ |
+| **macOS** | ✅ | ✅ | ✅ (bash) | ❌ (use launchd) |
+| **Windows** | ✅ | ✅ | ❌ (bash) | ❌ |
+
+OpenCode v1.17.9+, DeepSeek V4 Pro, Kimi K2.5/K2.6/K2.7, GLM-5.x, MiMo V2.5, MiniMax-M3, OpenCode Go.
+
+### Windows notes
+
+**Plugin and proxy work fully on Windows.** The proxy (`proxy.js`) uses only Node.js built-in modules (`http`, `https`, `url`) — zero platform-specific code. Start it with:
+
+```powershell
+# PowerShell
+$env:PORT=3457; node proxy\proxy.js
+```
+
+**Watchdog and systemd are Linux-only.** For Windows auto-restart, use **Task Scheduler** or **NSSM** (Non-Sucking Service Manager) to run the proxy as a Windows service:
+
+```powershell
+# Using NSSM (install once: winget install nssm)
+nssm install ReasoningCacheProxy node.exe proxy\proxy.js
+nssm set ReasoningCacheProxy AppDirectory C:\path\to\opencode-thinking-fix
+nssm set ReasoningCacheProxy AppEnvironmentExtra PORT=3457
+nssm start ReasoningCacheProxy
+```
+
+Repeat for the Go proxy on PORT=3458 with `UPSTREAM_URL=https://opencode.ai/zen/go/v1`.
+
+**OpenCode config paths on Windows:**
+
+| Scope | Path |
+|-------|------|
+| Global | `%APPDATA%\OpenCode\opencode.json` |
+| Project | `<project>\.opencode\opencode.json` |
+| Plugins dir | `%APPDATA%\OpenCode\plugins\` |
+| npm cache | `%LOCALAPPDATA%\opencode\node_modules\` |
