@@ -6,10 +6,10 @@ Plugin + proxy + watchdog that fixes DeepSeek/Kimi/GLM/MiMo `reasoning_content` 
 
 Reasoning models (DeepSeek V4, Kimi, GLM, MiMo) in OpenCode produce HTTP 400 on multi-turn conversations because OpenCode does not preserve `reasoning_content` across turns. The API requires `reasoning_content` to be echoed back in every assistant message.
 
-## Solution — Three Independent Layers
+## Solution, Three Independent Layers
 
 1. **Plugin** (`opencode-thinking-fix-universal.ts`): self-detection guard that injects `reasoning_content: ""` into assistant messages to prevent 400s. Works even if proxy is down.
-2. **Proxy** (`proxy.js`): intercepts API traffic, caches real reasoning from SSE streams, injects it back on subsequent turns. Zero npm dependencies.
+2. **Proxy** (`proxy.js`): intercepts API traffic, caches real reasoning from SSE streams, injects it back on subsequent turns. One runtime dependency (`eventsource-parser`).
 3. **Watchdog** (`watchdog.sh`): checks proxy health every 4 minutes, restarts if down.
 
 ## Architecture
@@ -35,7 +35,7 @@ Reasoning models (DeepSeek V4, Kimi, GLM, MiMo) in OpenCode produce HTTP 400 on 
 
 ## Prerequisites
 
-- Node.js (any recent version — proxy uses zero npm deps)
+- Node.js (any recent version, proxy uses `eventsource-parser` as its only dep)
 - OpenCode v1.17.0+ (for plugin `.ts` compilation support)
 - For direct providers: valid API keys in environment (`DEEPSEEK_API_KEY`, etc.)
 - For OpenCode Go: `OPENCODE_GO_API_KEY` or `~/.local/share/opencode/auth.json`
@@ -120,13 +120,13 @@ node ~/reasoning-cache-proxy/test-proxy.js   # 34/34 should pass
 ## How the Plugin Works
 
 - Hook: `experimental.chat.messages.transform`
-- **Input (`input`)**: always `{}` (empty — confirmed by GitHub #25494). DO NOT try to detect model via `input.model`.
+- **Input (`input`)**: always `{}` (empty, confirmed by GitHub #25494). DO NOT try to detect model via `input.model`.
 - **Output (`output.messages`)**: array of messages for the current conversation.
 - **Self-detection**: scans messages for ANY assistant message with `reasoning_content` OR `reasoning` field.
   - If found → reasoning model → patches ALL assistant messages to have BOTH fields.
   - If not found → non-reasoning model → passes through untouched (zero modification).
-- **Important**: Plugin wraps messages in `{ info: Message }` or bare `Message` — handle both via `msg?.info ?? msg`.
-- **Non-reasoning models** (Qwen/GPT/Claude) reject unknown fields with 400 — never inject reasoning fields for them.
+- **Important**: Plugin wraps messages in `{ info: Message }` or bare `Message`, handle both via `msg?.info ?? msg`.
+- **Non-reasoning models** (Qwen/GPT/Claude) reject unknown fields with 400, never inject reasoning fields for them.
 - **Fail-open**: if proxy is down, plugin injects `""` to prevent 400s.
 
 ## How the Proxy Works
@@ -158,18 +158,18 @@ node ~/reasoning-cache-proxy/test-proxy.js   # 34/34 should pass
 
 ## Critical Facts for AI Agents
 
-1. Plugin's `messages.transform` hook receives `input: {}` always — never try to detect model via `input.model`.
-2. Plugin wraps messages as `{ info: Message }` or bare `Message` — handle both via `msg?.info ?? msg`.
-3. Non-reasoning models (Qwen/GPT/Claude) reject unknown fields with 400 — never inject reasoning fields for them.
+1. Plugin's `messages.transform` hook receives `input: {}` always, never try to detect model via `input.model`.
+2. Plugin wraps messages as `{ info: Message }` or bare `Message`, handle both via `msg?.info ?? msg`.
+3. Non-reasoning models (Qwen/GPT/Claude) reject unknown fields with 400, never inject reasoning fields for them.
 4. DeepSeek docs: "reasoning_content must be passed back to the API in all subsequent requests".
-5. OpenCode Go uses `delta.reasoning` in SSE (not `reasoning_content`) — proxy handles both.
+5. OpenCode Go uses `delta.reasoning` in SSE (not `reasoning_content`), proxy handles both.
 6. Plugin is fail-open: if proxy is down, plugin injects `""` to prevent 400s.
-7. Zero external npm dependencies for proxy — pure Node.js built-ins only.
+7. Proxy uses `eventsource-parser` plus Node.js built-ins (`http`, `https`, `url`).
 
 ## Troubleshooting
 
 - **Plugin not loading**: check `~/.config/opencode/plugins/` (plural with 's'), not `plugin/`. OpenCode reads from `plugins/` directory.
-- **Broken plugin dependency**: check for `@opencode-ai/plugin` in `~/.config/opencode/node_modules/` — delete it if present (causes conflicts).
+- **Broken plugin dependency**: check for `@opencode-ai/plugin` in `~/.config/opencode/node_modules/`, delete it if present (causes conflicts).
 - **Proxy not starting**: check port conflicts with `lsof -i :3457` or `lsof -i :3458`.
 - **Cache not working**: verify `x-session-id` header is being forwarded by OpenCode to the proxy.
 - **Watchdog**: check logs with `journalctl --user -u reasoning-proxy-watchdog.service -f`.

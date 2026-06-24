@@ -25,6 +25,7 @@
 const http  = require('http')
 const https = require('https')
 const url   = require('url')
+const { createParser } = require('eventsource-parser')
 
 const PORT = parseInt(process.env.PORT || '3457', 10)
 
@@ -67,15 +68,46 @@ function route(modelName) {
   return DEFAULT_ROUTE
 }
 
+// ── LRU Cache ─────────────────────────────────────────────────────────────
+// Bounded session cache using Map insertion-order eviction.
+// get() refreshes position; put() evicts least-recently-used when full.
+// Zero dependencies, O(1) get/put, memory-safe for long-running processes.
+class LRUCache {
+  constructor(capacity) {
+    this.cache = new Map()
+    this.capacity = capacity
+  }
+  get(key) {
+    if (!this.cache.has(key)) return undefined
+    const val = this.cache.get(key)
+    this.cache.delete(key)
+    this.cache.set(key, val)
+    return val
+  }
+  put(key, value) {
+    this.cache.delete(key)
+    if (this.cache.size >= this.capacity) {
+      const oldest = this.cache.keys().next().value
+      this.cache.delete(oldest)
+      console.log(`[Cache] evicted session ${String(oldest).slice(-8)} (capacity ${this.capacity})`)
+    }
+    this.cache.set(key, value)
+  }
+}
+
 // ── In-memory reasoning cache ─────────────────────────────────────────────
 // Structure: Map<sessionID, Map<assistantIndex, reasoning_content_string>>
 // sessionID comes from x-session-id header forwarded by OpenCode
 // assistantIndex is the position of the assistant message in the history array
-const cache = new Map()
+const cache = new LRUCache(500)
 
 function getSessionCache(sessionId) {
-  if (!cache.has(sessionId)) cache.set(sessionId, new Map())
-  return cache.get(sessionId)
+  let sessionMap = cache.get(sessionId)
+  if (!sessionMap) {
+    sessionMap = new Map()
+    cache.put(sessionId, sessionMap)
+  }
+  return sessionMap
 }
 
 // ── Request body patching ─────────────────────────────────────────────────
@@ -105,7 +137,7 @@ function patchRequestBody(body, sessionId) {
     }
 
     // Inject real cached reasoning if available, otherwise ""
-    // Check VALUE (not key existence) — plugin sets "" so key always exists
+    // Check VALUE (not key existence), plugin sets "" so key always exists
     if (!msg.reasoning_content) {
       const cached = sessionCache.get(assistantIndex)
       msg.reasoning_content = cached ?? ''
@@ -142,98 +174,56 @@ function patchRequestBody(body, sessionId) {
 }
 
 // ── SSE stream parser ─────────────────────────────────────────────────────
-// Parses streaming response chunks to extract reasoning_content
-// Accumulates across chunks since a single reasoning block can span many
+// Extracts reasoning_content from streaming chunks using eventsource-parser
+// (spec-compliant, 368k dependents, built-in maxBufferSize guard)
+const MAX_BUFFER = 1024 * 1024 // 1MB, prevents OOM on malformed streams
+
 function createStreamParser(sessionId, onComplete) {
-  let buffer = ''
   let reasoningBuffer = ''
-  let assistantIndex = 0  // tracks which assistant turn we're building
-  let inReasoning = false
+  let assistantIndex = 0
+  const chunks = [] // forward buffers for re-serialization
+
+  const parser = createParser({
+    maxBufferSize: MAX_BUFFER,
+    onEvent(event) {
+      const line = event.event ? `event: ${event.event}\ndata: ${event.data}\n\n` : `data: ${event.data}\n\n`
+      chunks.push(line)
+
+      if (event.event === 'done' || JSON.parse(event.data || '{}')?.choices?.[0]?.finish_reason) {
+        if (reasoningBuffer) {
+          onComplete(assistantIndex, reasoningBuffer)
+          reasoningBuffer = ''
+        }
+        assistantIndex++
+        return
+      }
+
+      if (!event.data || event.data === '[DONE]') return
+
+      try {
+        const parsed = JSON.parse(event.data)
+        const delta = parsed.choices?.[0]?.delta
+        if (!delta) return
+
+        if (typeof delta.reasoning_content === 'string') reasoningBuffer += delta.reasoning_content
+        if (typeof delta.reasoning === 'string') reasoningBuffer += delta.reasoning
+        if (Array.isArray(delta.reasoning_details)) {
+          for (const d of delta.reasoning_details) {
+            if (typeof d.text === 'string') reasoningBuffer += d.text
+          }
+        }
+      } catch { /* malformed SSE chunk, ignore */ }
+    },
+    onError(error) {
+      console.error(`[Proxy] SSE parser error in session ${sessionId.slice(-8)}:`, error.message)
+    }
+  })
 
   return {
     feed(chunk) {
-      buffer += chunk.toString()
-      const lines = buffer.split('\n')
-      buffer = lines.pop() // keep incomplete last line
-      const outLines = []
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) {
-          outLines.push(line)
-          continue
-        }
-        const data = line.slice(6).trim()
-        if (data === '[DONE]') {
-          // Flush accumulated reasoning for this turn
-          if (reasoningBuffer) {
-            onComplete(assistantIndex, reasoningBuffer)
-            reasoningBuffer = ''
-          }
-          outLines.push(line)
-          continue
-        }
-        try {
-          const parsed = JSON.parse(data)
-          const delta = parsed.choices?.[0]?.delta
-          if (!delta) {
-            outLines.push(line)
-            continue
-          }
-
-          // reasoning_content delta (DeepSeek/Kimi/GLM/MiniMax)
-          if (typeof delta.reasoning_content === 'string') {
-            reasoningBuffer += delta.reasoning_content
-            inReasoning = true
-          }
-
-          // reasoning_details array (MiniMax-M3 with reasoning_split: true)
-          if (Array.isArray(delta.reasoning_details)) {
-            for (const detail of delta.reasoning_details) {
-              if (typeof detail.text === 'string') {
-                reasoningBuffer += detail.text
-              }
-            }
-            inReasoning = true
-          }
-
-          // OpenCode Go uses delta.reasoning instead of reasoning_content
-          if (typeof delta.reasoning === 'string') {
-            reasoningBuffer += delta.reasoning
-            inReasoning = true
-          }
-
-          // content may contain embedded <think> tags when reasoning_split is not
-          // honored (MiniMax fallback). Extract them into reasoningBuffer.
-          if (typeof delta.content === 'string') {
-            const thinkMatch = delta.content.match(/<think>([\s\S]*?)<\/think>/)
-            if (thinkMatch) {
-              reasoningBuffer += thinkMatch[1]
-              inReasoning = true
-              delta.content = delta.content.replace(/<think>[\s\S]*?<\/think>/, '').trimStart()
-            }
-          }
-
-          // finish_reason means the assistant turn is complete
-          // Only flush here — NOT on content appearance (interleaved thinking
-          // emits reasoning AFTER content on GLM-5+ and MiniMax-M3)
-          if (parsed.choices?.[0]?.finish_reason) {
-            if (reasoningBuffer) {
-              onComplete(assistantIndex, reasoningBuffer)
-              reasoningBuffer = ''
-              inReasoning = false
-            }
-            assistantIndex++
-          }
-
-          // Re-serialize the possibly-modified chunk and forward it
-          outLines.push('data: ' + JSON.stringify(parsed))
-        } catch {
-          // malformed SSE chunk, forward unchanged
-          outLines.push(line)
-        }
-      }
-
-      return outLines.join('\n') + '\n'
+      chunks.length = 0
+      parser.feed(chunk)
+      return chunks.join('')
     },
     flush() {
       if (reasoningBuffer) {
@@ -246,7 +236,7 @@ function createStreamParser(sessionId, onComplete) {
 
 // ── Main proxy handler ────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
-  // Health check — plugin uses this to detect running proxy
+  // Health check, plugin uses this to detect running proxy
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ ok: true, uptime: Math.floor(process.uptime()) }))
@@ -407,3 +397,26 @@ server.on('error', (err) => {
   console.error('[Proxy] server error:', err.message)
   process.exit(1)
 })
+
+// ── Graceful shutdown ──────────────────────────────────────────────────────
+function shutdown(signal) {
+  console.log(`[Proxy] received ${signal}, shutting down gracefully...`)
+  // Log cache stats before clearing
+  let totalEntries = 0
+  for (const [, sessionMap] of cache.cache) {
+    totalEntries += sessionMap.size
+  }
+  console.log(`[Proxy] ${cache.cache.size} session(s), ${totalEntries} cached turn(s)`)
+  server.close(() => {
+    console.log('[Proxy] server closed')
+    process.exit(0)
+  })
+  // Force exit after 5 seconds if connections don't drain
+  setTimeout(() => {
+    console.error('[Proxy] forced exit after timeout')
+    process.exit(1)
+  }, 5000).unref()
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT',  () => shutdown('SIGINT'))

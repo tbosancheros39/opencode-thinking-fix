@@ -18,17 +18,17 @@ npm install opencode-thinking-fix
 
 ## Quick Install
 
-**This is an OpenCode plugin. Install it inside OpenCode — no terminal needed.**
+**This is an OpenCode plugin. Install it inside OpenCode, no terminal needed.**
 
 ### Method 1: TUI (press `Ctrl+P` while OpenCode is running)
 
 1. Press `Ctrl+P` to open the command palette.
 2. Type `install plugin` and press `Enter`.
-3. Press `Tab` to switch the install scope to **Global** (recommended — works across all projects).
+3. Press `Tab` to switch the install scope to **Global** (recommended, works across all projects).
 4. Type `opencode-thinking-fix`.
 5. Press `Enter`. Restart OpenCode.
 
-You should see `[ThinkingFix] Plugin loaded — universal reasoning_content fix active` at startup.
+You should see `[ThinkingFix] Plugin loaded, universal reasoning_content fix active` at startup.
 
 ### Method 2: CLI (shell command)
 
@@ -39,7 +39,7 @@ opencode plugin opencode-thinking-fix
 For a specific version:
 
 ```bash
-opencode plugin opencode-thinking-fix@1.1.9
+opencode plugin opencode-thinking-fix@2.0.0
 ```
 
 Restart OpenCode after installing.
@@ -84,7 +84,13 @@ You ask DeepSeek a question. It picks a tool, calls it, works fine. Then you ask
 HTTP 400: The reasoning_content in the thinking mode must be passed back to the API
 ```
 
-DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) say it clearly: if you do not pass back `reasoning_content` correctly, the API returns a 400 error.
+DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) say it clearly: if you do not pass back `reasoning_content` correctly, the API returns a 400 error. All five providers confirm this in their official documentation:
+
+- **DeepSeek**: "[The reasoning_content will be ignored by the API](https://api-docs.deepseek.com/guides/thinking_mode)", but the conversation history must contain the field.
+- **Z.AI / GLM**: "[Key: return reasoning_content to keep the reasoning coherent](https://docs.z.ai/en/api/thinking)."
+- **Kimi / Moonshot**: "[You must keep the reasoning_content in the multi-round conversation... otherwise an error will be thrown](https://platform.moonshot.ai/docs/guide/thinking-mode)."
+- **MiniMax**: "[The complete model response must be append to the conversation history](https://platform.minimaxi.com/document/ChatCompletion%20v2)."
+- **Xiaomi MiMo**: "[Any assistant message with tool calls... must preserve its full reasoning_content field, otherwise the API will return a 400 error](https://dev.mi.com/doc/llm-api). Affected frameworks include TRAE, Cursor, Roo Code, Codex, GitHub Copilot CLI, Zed, AutoGen."
 
 OpenCode's provider layer drops this field. Three upstream PRs ([#24250](https://github.com/anomalyco/opencode/pull/24250), [#24428](https://github.com/anomalyco/opencode/pull/24428), [#24895](https://github.com/anomalyco/opencode/pull/24895)) tried to fix it. None merged. The field is non-standard per OpenAI, so both OpenCode and the AI SDK ignore it.
 
@@ -96,7 +102,7 @@ This repo fixes it. Three layers, pick what you need.
 
 ### Install via npm (recommended)
 
-See [Quick Install](#quick-install) above — use OpenCode TUI (`Ctrl+P`) or CLI (`opencode plugin opencode-thinking-fix`).
+See [Quick Install](#quick-install) above, use OpenCode TUI (`Ctrl+P`) or CLI (`opencode plugin opencode-thinking-fix`).
 
 ### Manual install (for local development)
 
@@ -107,13 +113,13 @@ mkdir -p ~/.config/opencode/plugins
 cp plugins/opencode-thinking-fix-universal.ts ~/.config/opencode/plugins/
 ```
 
-It scans outgoing messages for any assistant turn that already has `reasoning_content`. If it finds one (meaning you are using a reasoning model), it adds `reasoning_content: ""` to every assistant turn missing it. If it finds nothing (Qwen, GPT, Claude — they never produce this field), it does nothing.
+It scans outgoing messages for any assistant turn that already has `reasoning_content`. If it finds one (meaning you are using a reasoning model), it adds `reasoning_content: ""` to every assistant turn missing it. If it finds nothing (Qwen, GPT, Claude, they never produce this field), it does nothing.
 
 It also handles `reasoning` for the OpenCode Go provider, and patches empty `content` fields that OpenAI-compatible SDKs sometimes omit.
 
 No config file changes. No build step. OpenCode compiles `.ts` plugins when it starts.
 
-**The catch:** the plugin fills in empty strings, not your model's actual prior thinking. DeepSeek, Kimi K2.5/K2.6, GLM, and MiMo accept empty strings fine — your conversation works but the model does not see its earlier reasoning. Kimi K2.7 Code rejects empty strings entirely, it needs the real text.
+**The catch:** the plugin fills in empty strings, not your model's actual prior thinking. DeepSeek, Kimi K2.5/K2.6, GLM, and MiMo accept empty strings fine, your conversation works but the model does not see its earlier reasoning. Kimi K2.7 Code rejects empty strings entirely, it needs the real text.
 
 ---
 
@@ -132,7 +138,7 @@ The proxy runs on **two ports**:
 | **3457** | Direct providers (DeepSeek, Kimi, GLM, MiMo, GPT, Claude, Qwen, Gemini, etc.) | `PORT=3457` |
 | **3458** | OpenCode Go provider | `PORT=3458` `UPSTREAM_URL=https://opencode.ai/zen/go/v1` |
 
-Port 3457 auto-routes based on model name using the built-in route table. Port 3458 is a fixed-upstream proxy specifically for the OpenCode Go provider, which uses `delta.reasoning` (not `reasoning_content`) in its SSE streams. Both are handled by the same `proxy.js` binary — just different environment variables.
+Port 3457 auto-routes based on model name using the built-in route table. Port 3458 is a fixed-upstream proxy specifically for the OpenCode Go provider, which uses `delta.reasoning` (not `reasoning_content`) in its SSE streams. Both are handled by the same `proxy.js` binary, just different environment variables.
 
 ```bash
 # Linux / macOS / Windows (Node.js required)
@@ -155,7 +161,7 @@ systemctl --user enable --now reasoning-cache.service
 systemctl --user enable --now reasoning-cache-go.service
 ```
 
-Then point OpenCode at it — in your `opencode.json`:
+Then point OpenCode at it, in your `opencode.json`:
 
 ```json
 {
@@ -170,9 +176,9 @@ Then point OpenCode at it — in your `opencode.json`:
 }
 ```
 
-Zero npm dependencies. It uses `http`, `https`, and `url` — nothing else.
+One runtime dependency (`eventsource-parser`). The proxy uses Node.js built-in `http`, `https`, and `url` for everything else.
 
-**Interleaved thinking support:** GLM-5+ and MiniMax-M3 emit reasoning AFTER content in the same turn (interleaved thinking between tool calls). The proxy accumulates ALL reasoning across an entire assistant turn and flushes only on `finish_reason` — never on `delta.content` arrival. This prevents split/lost reasoning blocks.
+**Interleaved thinking support:** GLM-5+ and MiniMax-M3 emit reasoning AFTER content in the same turn (interleaved thinking between tool calls). The proxy accumulates ALL reasoning across an entire assistant turn and flushes only on `finish_reason`, never on `delta.content` arrival. This prevents split/lost reasoning blocks.
 
 **Kimi K2.7 Code and OpenCode Go need this.** The rest of the models benefit from it but do not technically require it.
 
@@ -243,7 +249,7 @@ Unknown models fall back to `https://api.deepseek.com` with reasoning disabled.
 
 ## Is it working?
 
-Turn 1 will not show anything — there is no history to patch yet. That is normal.
+Turn 1 will not show anything, there is no history to patch yet. That is normal.
 
 Turn 2+, check the console:
 
@@ -321,9 +327,9 @@ OpenCode is not the only tool that drops `reasoning_content`. Here is a partial 
 
 ```
 plugins/
-  opencode-thinking-fix-universal.ts   # self-detection plugin (175 lines)
+  opencode-thinking-fix-universal.ts   # self-detection plugin (92 lines)
 proxy/
-  proxy.js                              # reasoning cache proxy (409 lines, zero deps)
+  proxy.js                              # reasoning cache proxy (422 lines, 1 dep)
 tests/
   test-plugin.js                        # plugin unit tests (228 lines, 12 cases)
   test-proxy.js                         # proxy unit tests (359 lines, 15 cases)
@@ -347,7 +353,7 @@ OpenCode v1.17.9+, DeepSeek V4 Pro, Kimi K2.5/K2.6/K2.7, GLM-5.x, MiMo V2.5, Min
 
 ### Windows notes
 
-**Plugin and proxy work fully on Windows.** The proxy (`proxy.js`) uses only Node.js built-in modules (`http`, `https`, `url`) — zero platform-specific code. Start it with:
+**Plugin and proxy work fully on Windows.** The proxy (`proxy.js`) uses one runtime dependency (`eventsource-parser`) plus Node.js built-in modules (`http`, `https`, `url`). No platform-specific code. Start it with:
 
 ```powershell
 # PowerShell

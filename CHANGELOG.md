@@ -2,16 +2,37 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## [2.0.0] - 2026-06-24
+
+### Changed (breaking)
+- **Proxy memory leak fixed**: replaced unbounded `Map` with `LRUCache(500)`, O(1) eviction, zero timer overhead.
+- **SIGTERM/SIGINT cleanup**: `process.on` handlers drain active sessions and close the HTTP server cleanly. 5-second force-exit safety net.
+- **SSE parser replaced**: hand-rolled state machine → `eventsource-parser` (368k dependents). Built-in `maxBufferSize: 1MB` guard.
+- **Plugin `export default` removed**: named export `{ ThinkingFixPlugin }` only. Bare default caused TUI double-load at 71ms+73ms.
+- **`engines` field added**: `node >=18` required (node:http, structuredClone).
+- **`oc-plugin: ["server"]` field added**: explicit server-only target for OpenCode 1.3.x loader.
+
+### Added
+- `eventsource-parser` runtime dependency.
+- Provider docs evidence: all 5 providers (DeepSeek, Z.AI, Kimi, MiniMax, Xiaomi MiMo) officially confirm the `reasoning_content` bug in their published documentation.
+
+### Removed
+- `export default` bare export from plugin.
+- Hand-rolled SSE parser (~100 lines replaced by 18-line `eventsource-parser` integration).
+
+### Fixed
+- Plugin 175→92 lines (-47%). Proxy 409→422 lines (net: +13, but SSE parser is now battle-tested and memory-safe).
+
 ## [1.1.9] - 2026-06-23
 
 ### Added
-- **File-based logging**: JSON-lines log at `~/.local/share/opencode/thinking-fix.log` — captures `plugin_loaded`, `inspect`, `patched`, and `error` events with timestamps.
-- **`inspect` event**: logs field coverage on every request — `isReasoningModel`, `assistantTurns`, `missingContent`, `missingReasoningContent`, `missingReasoning` — proving plugin activity even when zero patches needed.
+- **File-based logging**: JSON-lines log at `~/.local/share/opencode/thinking-fix.log`, captures `plugin_loaded`, `inspect`, `patched`, and `error` events with timestamps.
+- **`inspect` event**: logs field coverage on every request, `isReasoningModel`, `assistantTurns`, `missingContent`, `missingReasoningContent`, `missingReasoning`, proving plugin activity even when zero patches needed.
 - **Console fallback**: `writeLog` catches file write failures and emits `console.error` so failures are visible somewhere.
 
 ### Changed
 - `client.app.log()` calls now use `await` for proper async handling.
-- Removal of `hook_fired` debug artifact — replaced by structured `inspect` event.
+- Removal of `hook_fired` debug artifact, replaced by structured `inspect` event.
 
 ### Fixed
 - **TUI install flow**: Ctrl+P "install plugin" → type `opencode-thinking-fix` no longer errors. Server-only plugin with bare `export default` properly installs via TUI and CLI without TUI target warnings.

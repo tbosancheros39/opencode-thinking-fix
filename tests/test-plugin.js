@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// patchMessages — ported from opencode-thinking-fix-universal.ts (lines 31-77)
+// patchMessages, ported from opencode-thinking-fix-universal.ts (lines 31-77)
 // ─────────────────────────────────────────────────────────────────────────────
 function patchMessages(messages) {
   let count = 0
@@ -12,7 +12,7 @@ function patchMessages(messages) {
     return msg?.role === 'assistant' && ('reasoning_content' in msg || 'reasoning' in msg)
   })
 
-  // Step 2: Non-reasoning model — exit immediately
+  // Step 2: Non-reasoning model, exit immediately
   if (!isReasoningModel) return 0
 
   // Step 3: Patch all assistant turns missing required fields
@@ -55,7 +55,7 @@ function test(name, fn) {
     console.log(`  PASS: ${name}`)
   } catch (e) {
     failed++
-    const msg = `${name} — ${e.message}`
+    const msg = `${name}, ${e.message}`
     failures.push(msg)
     console.log(`  FAIL: ${msg}`)
   }
@@ -142,7 +142,7 @@ test('TC5: Both assistant messages patched when at least one has reasoning', () 
 })
 
 // ── TC6: Already complete message ───────────────────────────────────────────
-test('TC6: Already complete message — no changes', () => {
+test('TC6: Already complete message, no changes', () => {
   const msgs = deepClone([
     { role: 'assistant', content: 'done', reasoning_content: 'done', reasoning: 'done' },
   ])
@@ -184,7 +184,7 @@ test('TC9: Empty messages array returns 0', () => {
 })
 
 // ── TC10: Non-reasoning model with tool_calls ────────────────────────────────
-test('TC10: Non-reasoning model with tool_calls — no injection', () => {
+test('TC10: Non-reasoning model with tool_calls, no injection', () => {
   const msgs = deepClone([
     { role: 'assistant', content: '', tool_calls: [{ function: { name: 'f' } }] },
   ])
@@ -199,7 +199,7 @@ test('TC11: Reasoning model patches content to "call tool"', () => {
     { role: 'assistant', content: '', tool_calls: [{ function: { name: 'f' } }], reasoning_content: 'thinking' },
   ])
   const result = patchMessages(msgs)
-  // content is '' (empty string) — guard `!msg.content && msg.content !== ''` skips it
+  // content is '' (empty string), guard `!msg.content && msg.content !== ''` skips it
   // because '' !== '' is false. The original code treats '' as valid content.
   // Only reasoning is patched (reasoning_content and content are already present/invalid).
   assert(result === 1, `expected 1 patch (reasoning), got ${result}`)

@@ -28,7 +28,7 @@ check_and_start() {
         return 0
     fi
 
-    log "Proxy on port $port is DOWN — restarting..."
+    log "Proxy on port $port is DOWN, restarting..."
 
     # Kill any stale proxy process on this port
     pid=$(lsof -ti :"$port" 2>/dev/null)
@@ -55,7 +55,7 @@ check_and_start() {
 }
 
 # ── Main loop ────────────────────────────────────────────────────────────────
-log "Watchdog started — checking every ${CHECK_INTERVAL}s"
+log "Watchdog started, checking every ${CHECK_INTERVAL}s"
 
 while true; do
     check_and_start 3457 "$HEALTH_3457" ""

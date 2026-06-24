@@ -1,6 +1,27 @@
 node_modules/
 dist/
+coverage/
+.nyc_output/
+
+# Environment
 .env
-*.log
+.env.*
+
+# Build artifacts
+*.tgz
+*.tsbuildinfo
+
+# OS junk
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
+*.log.*
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
