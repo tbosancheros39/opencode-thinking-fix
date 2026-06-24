@@ -4,7 +4,9 @@
   "description": "Fix reasoning_content 400 errors for DeepSeek/Kimi/GLM/MiMo/MiniMax in OpenCode",
   "type": "module",
   "license": "MIT",
-  "oc-plugin": ["server"],
+  "oc-plugin": [
+    "server"
+  ],
   "author": "tbosancheros39",
   "keywords": [
     "opencode",
@@ -19,7 +21,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/tbosancheros39/opencode-thinking-fix"
+    "url": "git+https://github.com/tbosancheros39/opencode-thinking-fix.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tbosancheros39/opencode-thinking-fix/issues"
   },
   "homepage": "https://github.com/tbosancheros39/opencode-thinking-fix#readme",
   "main": "./plugins/opencode-thinking-fix-universal.ts",
