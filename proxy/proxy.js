@@ -189,6 +189,8 @@ function createStreamParser(sessionId, onComplete) {
       const line = event.event ? `event: ${event.event}\ndata: ${event.data}\n\n` : `data: ${event.data}\n\n`
       chunks.push(line)
 
+      if (!event.data || event.data === '[DONE]') return
+
       if (event.event === 'done' || JSON.parse(event.data || '{}')?.choices?.[0]?.finish_reason) {
         if (reasoningBuffer) {
           onComplete(assistantIndex, reasoningBuffer)
@@ -197,8 +199,6 @@ function createStreamParser(sessionId, onComplete) {
         assistantIndex++
         return
       }
-
-      if (!event.data || event.data === '[DONE]') return
 
       try {
         const parsed = JSON.parse(event.data)
@@ -222,7 +222,7 @@ function createStreamParser(sessionId, onComplete) {
   return {
     feed(chunk) {
       chunks.length = 0
-      parser.feed(chunk)
+      parser.feed(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
       return chunks.join('')
     },
     flush() {
