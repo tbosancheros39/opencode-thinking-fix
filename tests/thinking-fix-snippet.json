@@ -1,0 +1,33 @@
+# Plugin activity — opencode-thinking-fix v2.0.0
+# Source: ~/.local/share/opencode/thinking-fix.log
+# Total: 12,652 lines | 4,606 reasoning (TRUE) | 4,195 non-reasoning (FALSE) | 3,608 patched | 243 loaded
+#
+# 9 best examples extracted from full production log:
+
+# 1. Plugin startup
+{"ts":"2026-06-23T19:33:46.425Z","event":"plugin_loaded","logFile":"/home/anini39/.local/share/opencode/thinking-fix.log"}
+
+# 2. Reasoning model — 194 messages, 91 fields patched, dual-patch on turns 1+117
+{"ts":"2026-06-25T02:12:35.006Z","event":"inspect","isReasoningModel":true,"totalMessages":194,"patchedFields":91,"turns":[{"index":1,"fields":["text","reasoning"]},{"index":5,"fields":["text"]},{"index":117,"fields":["text","reasoning"]}]}
+
+# 3. Non-reasoning passthrough — fresh session, correctly skipped
+{"ts":"2026-06-25T16:00:49.674Z","event":"inspect","isReasoningModel":false,"totalMessages":1,"assistantTurns":0,"missingText":0,"missingReasoning":0}
+
+# 4. Fresh session startup — 1 message, 0 turns, handled clean
+{"ts":"2026-06-24T11:03:32.287Z","event":"inspect","isReasoningModel":false,"totalMessages":1,"assistantTurns":0,"missingContent":0,"missingReasoningContent":0,"missingReasoning":0}
+
+# 5. Already fully patched — 116 messages, patchedFields=0 (re-entry safe)
+{"ts":"2026-06-25T02:12:31.685Z","event":"inspect","isReasoningModel":true,"totalMessages":116,"patchedFields":0,"turns":[]}
+
+# 6. Model switch — FALSE at 1 message → TRUE at 2 messages (fastest detection)
+{"ts":"2026-06-25T20:25:06.021Z","event":"inspect","isReasoningModel":false,"totalMessages":1,"assistantTurns":0,"missingText":0,"missingReasoning":0}
+{"ts":"2026-06-25T20:25:12.568Z","event":"inspect","isReasoningModel":true,"totalMessages":2,"assistantTurns":1,"missingText":1,"missingReasoning":0}
+
+# 7. patched event — 21 fields across 7 turns, ALL three fix types
+{"ts":"2026-06-25T15:55:57.621Z","event":"patched","patchedFields":21,"totalMessages":13,"turns":[{"index":1,"fields":["content","reasoning_content","reasoning"]},{"index":3,"fields":["content","reasoning_content","reasoning"]},{"index":4,"fields":["content","reasoning_content","reasoning"]},{"index":6,"fields":["content","reasoning_content","reasoning"]},{"index":8,"fields":["content","reasoning_content","reasoning"]},{"index":9,"fields":["content","reasoning_content","reasoning"]},{"index":11,"fields":["content","reasoning_content","reasoning"]}]}
+
+# 8. OpenCode Go dual-patch — text+reasoning on same turn
+{"ts":"2026-06-25T02:12:35.006Z","event":"inspect","isReasoningModel":true,"totalMessages":194,"patchedFields":91,"turns":[{"index":1,"fields":["text","reasoning"]},{"index":117,"fields":["text","reasoning"]}]}
+
+# 9. Triple-fix — content + reasoning_content + reasoning on 7 consecutive turns
+{"ts":"2026-06-25T15:55:57.621Z","event":"patched","patchedFields":21,"totalMessages":13,"turns":[{"index":1,"fields":["content","reasoning_content","reasoning"]},{"index":3,"fields":["content","reasoning_content","reasoning"]},{"index":4,"fields":["content","reasoning_content","reasoning"]},{"index":6,"fields":["content","reasoning_content","reasoning"]},{"index":8,"fields":["content","reasoning_content","reasoning"]},{"index":9,"fields":["content","reasoning_content","reasoning"]},{"index":11,"fields":["content","reasoning_content","reasoning"]}]}

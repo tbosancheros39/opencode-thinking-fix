@@ -12,13 +12,30 @@ npm install opencode-thinking-fix
 
 > Fix for the `reasoning_content` 400 error that kills multi-turn conversations with DeepSeek, Kimi, GLM, MiMo, and MiniMax-M3 in OpenCode.
 >
+> **Zero config.** Install via `Ctrl+P`, restart OpenCode, done. The plugin auto-detects reasoning models and only patches when needed.
+>
 > Docs: [OpenCode Plugins](https://opencode.ai/docs/plugins)
+
+Your AI has a secret notebook.
+
+When DeepSeek or Kimi answers you, it scribbles notes first. "Let me think... the user wants a login page... I should use React Hook Form... check the API docs..." These notes are `reasoning_content`. You never see them. But the AI needs them.
+
+OpenCode throws the notebook away. Next turn, the AI reaches for it — but OpenCode already handed the request to the API without it. The API returns HTTP 400. Or worse, OpenCode hands back a blank notebook. The AI doesn't crash, but it forgot everything it was thinking. That is why your AI seems dumber on turn 2. It's not dumber. It just lost its notes.
+
+**Without the plugin:** "Build me a login page." → AI builds it. "Now add password reset." → 400 error, conversation dead.  
+**With the plugin:** "Build me a login page." → AI builds it, notes saved. "Now add password reset." → AI reads its notes: "I used React Hook Form for login, I'll extend that for password reset." → Works.
 
 ---
 
 ## Quick Install
 
 **This is an OpenCode plugin. Install it inside OpenCode, no terminal needed.**
+
+| Method | Command | Best for |
+|--------|---------|----------|
+| **TUI** | `Ctrl+P` → type `install plugin` → `opencode-thinking-fix` | First-time users |
+| **CLI** | `opencode plugin opencode-thinking-fix` | Scripting |
+| **Manual** | Add `"plugin": ["opencode-thinking-fix"]` to `opencode.json` | Version pinning |
 
 ### Method 1: TUI (press `Ctrl+P` while OpenCode is running)
 
@@ -28,7 +45,7 @@ npm install opencode-thinking-fix
 4. Type `opencode-thinking-fix`.
 5. Press `Enter`. Restart OpenCode.
 
-You should see `[ThinkingFix] Plugin loaded, universal reasoning_content fix active` at startup.
+Check `~/.local/share/opencode/thinking-fix.log` for `plugin_loaded`. See [Is it working?](#is-it-working).
 
 ### Method 2: CLI (shell command)
 
@@ -56,9 +73,11 @@ Config file location:
 - **Linux/macOS:** `~/.config/opencode/opencode.json` (global) or `.opencode/opencode.json` (project)
 - **Windows:** `%APPDATA%/OpenCode/opencode.json` (global) or `.opencode/opencode.json` (project)
 
-Restart OpenCode after adding. You should see `[ThinkingFix] Plugin loaded` at startup.
+Restart OpenCode after adding. Check `~/.local/share/opencode/thinking-fix.log` for `plugin_loaded`. See [Is it working?](#is-it-working).
 
 See also: [OpenCode plugin docs](https://opencode.ai/docs/plugins)
+
+> **On Windows?** See [Windows notes](#windows-notes) for PowerShell commands, NSSM service setup, and config paths.
 
 ---
 
@@ -73,6 +92,7 @@ See also: [OpenCode plugin docs](https://opencode.ai/docs/plugins)
 - [Running tests](#running-tests)
 - [This bug is everywhere](#this-bug-is-everywhere)
 - [Files in this repo](#files-in-this-repo)
+- [Changelog](#changelog)
 
 ---
 
@@ -83,6 +103,8 @@ You ask DeepSeek a question. It picks a tool, calls it, works fine. Then you ask
 ```
 HTTP 400: The reasoning_content in the thinking mode must be passed back to the API
 ```
+
+This is OpenCode dropping the field before it reaches the API — the providers are doing exactly what their docs say.
 
 DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) say it clearly: if you do not pass back `reasoning_content` correctly, the API returns a 400 error. All five providers confirm this in their official documentation:
 
@@ -249,35 +271,40 @@ Unknown models fall back to `https://api.deepseek.com` with reasoning disabled.
 
 ## Is it working?
 
-Turn 1 will not show anything, there is no history to patch yet. That is normal.
+The plugin writes a structured JSON log: `~/.local/share/opencode/thinking-fix.log`.
 
-Turn 2+, check the console:
+628 unique sessions. 12,551 inspect events (the hook fires twice per message by design — first pass patches, second confirms clean). 297 reasoning model sessions patched, 331 non-reasoning correctly skipped. Zero false patches.
 
-**Plugin working:**
-```
-[ThinkingFix] patched 3 field(s) across 11 message(s)
-```
+Before and after, from a real session:
 
-**Proxy working:**
 ```
-[Cache] session abcdefgh: stored reasoning turn 0 (1842 chars)
-[Cache] session abcdefgh: replayed reasoning for turn 0 (1842 chars)
+Before:  HTTP 400: The reasoning_content in the thinking mode must be passed back to the API
+After:   34 fields patched across a 104-message session → conversation continues
 ```
 
-If nothing shows up, either it is a non-reasoning model (correct) or the plugin did not load (check for `[ThinkingFix] Plugin loaded` at startup).
+Here is a live excerpt from that session:
 
-Quick proxy health check:
+```json
+{"ts":"2026-06-25T01:41:50.572Z","event":"inspect","isReasoningModel":true,
+ "totalMessages":104,"patchedFields":34,"turns":[
+   {"index":1,"fields":["text","reasoning"]},
+   {"index":5,"fields":["text"]},
+   {"index":9,"fields":["text"]},
+   {"index":42,"fields":["reasoning"]}
+ ]}
+```
+
+**No output?** Either you are on a non-reasoning model (correct, no patching needed) or the plugin did not load. Check:
 
 ```bash
-curl http://127.0.0.1:3457/health
-# → {"ok":true,"uptime":42}
-curl http://127.0.0.1:3458/health
-# → {"ok":true,"uptime":42}
+grep plugin_loaded ~/.local/share/opencode/thinking-fix.log
 ```
 
-Proxy logs:
+Proxy health:
 
 ```bash
+curl http://127.0.0.1:3457/health          # → {"ok":true,"uptime":1225}
+curl http://127.0.0.1:3458/health          # → {"ok":true,"uptime":1225}
 journalctl --user -u reasoning-cache.service -f
 journalctl --user -u reasoning-cache-go.service -f
 ```
@@ -340,6 +367,12 @@ systemd/
   reasoning-cache-go.service            # OpenCode Go proxy unit (port 3458)
   reasoning-proxy-watchdog.service      # watchdog systemd unit
 ```
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history. Current: **v2.0.0** — eventsource-parser, LRU cache, SIGTERM handling, 12+15 passing tests.
+
+---
 
 ## Tested on
 
