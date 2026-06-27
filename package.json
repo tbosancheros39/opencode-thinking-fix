@@ -1,6 +1,6 @@
 {
   "name": "opencode-thinking-fix",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Fix reasoning_content 400 errors for DeepSeek/Kimi/GLM/MiMo/MiniMax in OpenCode",
   "type": "module",
   "license": "MIT",
