@@ -1,391 +1,291 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OpenCode Reasoning Cache Proxy
+// OpenCode Reasoning Cache Proxy  —  v3.1 (performance + correctness + dialect)
 //
 // What it does:
-//   - Sits between OpenCode and DeepSeek/Kimi/GLM/MiMo on localhost:3457
-//   - On every response: extracts real reasoning_content from the stream
-//     and stores it in memory, keyed by sessionID + message index
-//   - On every request: replays the cached real reasoning_content into
-//     assistant history turns instead of empty strings
+//   - Sits between OpenCode and DeepSeek/Kimi/GLM/MiMo/MiniMax on localhost:3457
+//   - On every response: extracts the REAL reasoning_content from the stream and
+//     stores it in memory, keyed by sessionID + the assistant turn index.
+//   - On every request: replays the cached real reasoning_content into the
+//     assistant history turns instead of empty strings.
 //
-// What it does NOT do:
-//   - Touch non-reasoning providers (Qwen/GPT/Claude pass through untouched)
-//   - Persist cache to disk (in-memory only, resets on restart)
-//   - Add any dashboard, UI, or monitoring endpoints
+// Performance model (v3):
+//   1. Responses are forwarded as RAW BYTES — no SSE re-serialization. The
+//      stream is parsed in parallel ONLY to populate the cache. This removes the
+//      per-chunk serialization bottleneck that added latency to every token.
+//   2. Request patching is LAZY: if OpenCode already round-trips reasoning
+//      (non-empty reasoning_content/reasoning on assistant turns), the body is
+//      forwarded untouched — zero JSON work. Patching only runs when a turn is
+//      actually missing its reasoning.
+//   3. Upstream connections are kept alive (TLS/handshake reuse) via an agent.
+//   4. gzip is disabled on the upstream leg so bytes pass through verbatim.
+//
+// Correctness fix (v3):
+//   The cache index for a response is the number of assistant messages already
+//   present in the request that produced it. This aligns the stored reasoning
+//   with the slot patchRequestBody() looks up on the NEXT request, so every
+//   turn replays its OWN reasoning (not turn 0's).
+//
+// Dialect fix (v3.1):
+//   Each route declares which reasoning field its upstream requires
+//   (reasoning_content vs reasoning_details vs null). Patching now echoes ONLY
+//   that field — no more cross-provider poisoning (GLM stored under `reasoning`
+//   used to 400 against DeepSeek which expects `reasoning_content`).
+//   deepseek-reasoner (R1) is null: it must NOT receive reasoning echoed back.
+//   Unknown models default to null (never fabricate reasoning).
 //
 // Deployment:
 //   node proxy.js
-//   Set UPSTREAM_URL env to change target (default: https://api.deepseek.com)
-//   Set PORT env to change listen port (default: 3457)
-//   In opencode.json: set baseURL to http://127.0.0.1:3457/v1
+//   PORT=3457  (universal model-routing proxy)
+//   PORT=3458 UPSTREAM_URL=https://opencode.ai/zen/go/v1  (OpenCode Go proxy)
+//   In opencode.json: set baseURL to http://127.0.0.1:<PORT>/v1
+//
+// Optional env:
+//   DEBUG=1            verbose cache logging
+//   CACHE_CAPACITY=500 max sessions
+//   UPSTREAM_TIMEOUT=30000  ms request timeout
 // ─────────────────────────────────────────────────────────────────────────────
 
-const http  = require('http')
-const https = require('https')
-const url   = require('url')
-const { createParser } = require('eventsource-parser')
+import http  from 'node:http'
+import https from 'node:https'
+import url   from 'node:url'
+import {
+  ROUTES, cache, stats, route, fixedUpstreamRoute, getSessionCache, patchRequestBody,
+  extractReasoningFromJson, createStreamParser, writeLog, deriveSessionId,
+} from './core.js'
 
-const PORT = parseInt(process.env.PORT || '3457', 10)
+const PORT            = parseInt(process.env.PORT || '3457', 10)
+const DEBUG           = process.env.DEBUG === '1'
+const UPSTREAM_TIMEOUT = parseInt(process.env.UPSTREAM_TIMEOUT || '30000', 10)
 
-// Optional fixed upstream override. When set, ALL requests are routed here
-// instead of using the model-based routing table. Used for OpenCode Go:
-//   UPSTREAM_URL=https://opencode.ai/zen/go/v1 PORT=3458 node proxy.js
+// Fixed-upstream mode (OpenCode Go): every request goes to one endpoint.
 const UPSTREAM_URL = process.env.UPSTREAM_URL || ''
 
-// ── Model routing table ────────────────────────────────────────────────────
-// Each entry: { base: upstream API base URL, reasoning: does this model emit reasoning_content? }
-// Prefix-based matching: "deepseek-v4-pro" matches the "deepseek" prefix
-const ROUTES = {
-  'deepseek-v4-pro': { base: 'https://api.deepseek.com',       reasoning: true  },
-  deepseek:   { base: 'https://api.deepseek.com',              reasoning: true  },
-  kimi:       { base: 'https://api.moonshot.ai/v1',            reasoning: true  },
-  moonshot:   { base: 'https://api.moonshot.ai/v1',            reasoning: true  },
-  glm:        { base: 'https://open.bigmodel.cn/api/paas/v4', reasoning: true  },
-  zhipu:      { base: 'https://open.bigmodel.cn/api/paas/v4', reasoning: true  },
-  minimax:    { base: 'https://api.minimax.io/v1',             reasoning: true  },
-  mimo:       { base: 'https://api.minimax.io/v1',             reasoning: true  },
-  gpt:        { base: 'https://api.openai.com',                reasoning: false },
-  o1:         { base: 'https://api.openai.com',                reasoning: false },
-  claude:     { base: 'https://api.anthropic.com',             reasoning: false },
-  anthropic:  { base: 'https://api.anthropic.com',             reasoning: false },
-  qwen:       { base: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', reasoning: false },
-  gemini:     { base: 'https://generativelanguage.googleapis.com/v1beta/openai', reasoning: false },
-  llama:      { base: 'https://api.together.xyz',              reasoning: false },
-  mistral:    { base: 'https://api.mistral.ai',                reasoning: false },
-}
+// ── Keep-alive agents (connection reuse → lower latency) ───────────────────
+const httpAgent  = new http.Agent({ keepAlive: true, maxSockets: 64, maxFreeSockets: 32 })
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 64, maxFreeSockets: 32 })
 
-// Default: fall back to DeepSeek for unknown models
-const DEFAULT_ROUTE = { base: 'https://api.deepseek.com', reasoning: false }
-
-function route(modelName) {
-  if (!modelName) return DEFAULT_ROUTE
-  const lower = modelName.toLowerCase()
-  for (const [prefix, entry] of Object.entries(ROUTES)) {
-    if (lower.startsWith(prefix)) return entry
-  }
-  return DEFAULT_ROUTE
-}
-
-// ── LRU Cache ─────────────────────────────────────────────────────────────
-// Bounded session cache using Map insertion-order eviction.
-// get() refreshes position; put() evicts least-recently-used when full.
-// Zero dependencies, O(1) get/put, memory-safe for long-running processes.
-class LRUCache {
-  constructor(capacity) {
-    this.cache = new Map()
-    this.capacity = capacity
-  }
-  get(key) {
-    if (!this.cache.has(key)) return undefined
-    const val = this.cache.get(key)
-    this.cache.delete(key)
-    this.cache.set(key, val)
-    return val
-  }
-  put(key, value) {
-    this.cache.delete(key)
-    if (this.cache.size >= this.capacity) {
-      const oldest = this.cache.keys().next().value
-      this.cache.delete(oldest)
-      console.log(`[Cache] evicted session ${String(oldest).slice(-8)} (capacity ${this.capacity})`)
-    }
-    this.cache.set(key, value)
-  }
-}
-
-// ── In-memory reasoning cache ─────────────────────────────────────────────
-// Structure: Map<sessionID, Map<assistantIndex, reasoning_content_string>>
-// sessionID comes from x-session-id header forwarded by OpenCode
-// assistantIndex is the position of the assistant message in the history array
-const cache = new LRUCache(500)
-
-function getSessionCache(sessionId) {
-  let sessionMap = cache.get(sessionId)
-  if (!sessionMap) {
-    sessionMap = new Map()
-    cache.put(sessionId, sessionMap)
-  }
-  return sessionMap
-}
-
-// ── Request body patching ─────────────────────────────────────────────────
-// Injects cached real reasoning_content into assistant history turns
-// Falls back to "" if no cache exists for that turn yet
-function patchRequestBody(body, sessionId) {
-  let parsed
-  try {
-    parsed = JSON.parse(body)
-  } catch {
-    return body // not JSON, forward as-is
-  }
-
-  if (!Array.isArray(parsed.messages)) return body
-
-  const sessionCache = getSessionCache(sessionId)
-  let assistantIndex = 0
-  let modified = false
-
-  for (const msg of parsed.messages) {
-    if (msg.role !== 'assistant') continue
-
-    // Fix content if missing
-    if (!msg.content && msg.content !== '') {
-      msg.content = msg.tool_calls?.length ? 'call tool' : ''
-      modified = true
-    }
-
-    // Inject real cached reasoning if available, otherwise ""
-    // Check VALUE (not key existence), plugin sets "" so key always exists
-    if (!msg.reasoning_content) {
-      const cached = sessionCache.get(assistantIndex)
-      msg.reasoning_content = cached ?? ''
-      if (cached) {
-        console.log(`[Cache] session ${sessionId.slice(-8)}: replayed reasoning_content for turn ${assistantIndex} (${cached.length} chars)`)
-      }
-      modified = true
-    }
-
-    // MiniMax-M3 reasoning_details array format (reasoning_split: true)
-    if (!msg.reasoning_details && !msg.reasoning_content) {
-      const cached = sessionCache.get(assistantIndex)
-      if (cached) {
-        msg.reasoning_details = [{ text: cached, type: 'thinking' }]
-        console.log(`[Cache] session ${sessionId.slice(-8)}: replayed reasoning_details for turn ${assistantIndex} (${cached.length} chars)`)
-        modified = true
-      }
-    }
-
-    // OpenCode Go uses reasoning instead of reasoning_content
-    if (!msg.reasoning) {
-      const cached = sessionCache.get(assistantIndex)
-      msg.reasoning = cached ?? ''
-      if (cached) {
-        console.log(`[Cache] session ${sessionId.slice(-8)}: replayed reasoning for turn ${assistantIndex} (${cached.length} chars)`)
-      }
-      modified = true
-    }
-
-    assistantIndex++
-  }
-
-  return modified ? JSON.stringify(parsed) : body
-}
-
-// ── SSE stream parser ─────────────────────────────────────────────────────
-// Extracts reasoning_content from streaming chunks using eventsource-parser
-// (spec-compliant, 368k dependents, built-in maxBufferSize guard)
-const MAX_BUFFER = 1024 * 1024 // 1MB, prevents OOM on malformed streams
-
-function createStreamParser(sessionId, onComplete) {
-  let reasoningBuffer = ''
-  let assistantIndex = 0
-  const chunks = [] // forward buffers for re-serialization
-
-  const parser = createParser({
-    maxBufferSize: MAX_BUFFER,
-    onEvent(event) {
-      const line = event.event ? `event: ${event.event}\ndata: ${event.data}\n\n` : `data: ${event.data}\n\n`
-      chunks.push(line)
-
-      if (event.event === 'done' || JSON.parse(event.data || '{}')?.choices?.[0]?.finish_reason) {
-        if (reasoningBuffer) {
-          onComplete(assistantIndex, reasoningBuffer)
-          reasoningBuffer = ''
-        }
-        assistantIndex++
-        return
-      }
-
-      if (!event.data || event.data === '[DONE]') return
-
-      try {
-        const parsed = JSON.parse(event.data)
-        const delta = parsed.choices?.[0]?.delta
-        if (!delta) return
-
-        if (typeof delta.reasoning_content === 'string') reasoningBuffer += delta.reasoning_content
-        if (typeof delta.reasoning === 'string') reasoningBuffer += delta.reasoning
-        if (Array.isArray(delta.reasoning_details)) {
-          for (const d of delta.reasoning_details) {
-            if (typeof d.text === 'string') reasoningBuffer += d.text
-          }
-        }
-      } catch { /* malformed SSE chunk, ignore */ }
-    },
-    onError(error) {
-      console.error(`[Proxy] SSE parser error in session ${sessionId.slice(-8)}:`, error.message)
-    }
-  })
-
-  return {
-    feed(chunk) {
-      chunks.length = 0
-      parser.feed(chunk)
-      return chunks.join('')
-    },
-    flush() {
-      if (reasoningBuffer) {
-        onComplete(assistantIndex, reasoningBuffer)
-        reasoningBuffer = ''
-      }
-    }
-  }
-}
-
-// ── Main proxy handler ────────────────────────────────────────────────────
+// ── Main proxy handler ─────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
-  // Health check, plugin uses this to detect running proxy
+  res.on('error', (err) => { if (DEBUG) console.error('[Proxy] client response error:', err.message) })
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: true, uptime: Math.floor(process.uptime()) }))
+    res.end(JSON.stringify({
+      ok: true,
+      uptime: Math.floor(process.uptime()),
+      sessions: stats.sessions,
+      cacheHits: stats.hits,
+      cacheMisses: stats.misses,
+      stored: stats.stored,
+      requests: stats.requests,
+      passthrough: stats.passthrough,
+    }))
     return
   }
 
-  // Collect request body
   const chunks = []
-  req.on('data', chunk => chunks.push(chunk))
+  req.on('data', (chunk) => chunks.push(chunk))
   req.on('end', () => {
+    stats.requests++
     const rawBody = Buffer.concat(chunks)
-    const sessionId = req.headers['x-session-id'] || 'unknown'
+    const rawSessionId = req.headers['x-session-id']
     const isPost = req.method === 'POST'
     const isJson = (req.headers['content-type'] || '').includes('application/json')
-
-    // Determine upstream route
-    let modelName = ''
-    let routeTarget = DEFAULT_ROUTE
-
-    // Always parse model name from body so provider-specific patches work
-    // even in fixed-upstream mode (OpenCode Go)
+    let parsedBody = null
     if (isPost && isJson && rawBody.length > 0) {
-      try {
-        const bodyJson = JSON.parse(rawBody.toString('utf8'))
-        modelName = bodyJson.model || ''
-      } catch { /* body not JSON yet */ }
+      try { parsedBody = JSON.parse(rawBody.toString('utf8')) } catch { /* ignore */ }
     }
 
-    if (UPSTREAM_URL) {
-      // Fixed upstream mode (e.g. OpenCode Go)
-      routeTarget = { base: UPSTREAM_URL, reasoning: true }
-    } else {
-      // Model-based routing mode
-      routeTarget = route(modelName)
-    }
+    // Resolve model + route (model parsed even in fixed-upstream mode)
+    const modelName = parsedBody?.model || ''
+    const routeTarget = UPSTREAM_URL
+      ? { ...fixedUpstreamRoute(modelName, req.url), base: UPSTREAM_URL }
+      : route(modelName)
     const upstream = url.parse(routeTarget.base)
-    const shouldPatch = isPost && isJson && routeTarget.reasoning
+    let sessionId = typeof rawSessionId === 'string' ? rawSessionId.trim() : ''
+    if ((!sessionId || sessionId === 'unknown') && isPost && isJson && parsedBody) {
+      sessionId = deriveSessionId(modelName, parsedBody, req.headers['authorization']) || 'unknown'
+    }
+    const shouldPatch = isPost && isJson && !!routeTarget.reasoningKey && !!sessionId && sessionId !== 'unknown'
 
-    // Patch request body if this is a reasoning provider
-    let bodyToSend = rawBody
-    if (shouldPatch && rawBody.length > 0) {
-      let bodyStr = rawBody.toString('utf8')
-      try {
-        const bj = JSON.parse(bodyStr)
-
-        // Strip unsupported params for Kimi/Moonshot thinking mode
-        // Moonshot hardcodes sampling params for thinking models and rejects
-        // explicit values. Docs: https://platform.kimi.ai/docs/api/models-overview
-        const isKimi = modelName.toLowerCase().startsWith('kimi') || modelName.toLowerCase().startsWith('moonshot')
-        if (isKimi) {
-          delete bj.temperature
-          delete bj.top_p
-          delete bj.top_k
-          delete bj.presence_penalty
-          delete bj.frequency_penalty
-          delete bj.n
-          // K2.7 thinking is always on; do not send thinking/reasoning_effort controls
-          if (modelName.toLowerCase().startsWith('kimi-k2.7')) {
-            delete bj.thinking
-            delete bj.reasoning_effort
-          }
-        }
-
-        // Inject reasoning_split for MiniMax models (avoids <think> tags in content)
-        const isMiniMax = modelName.toLowerCase().startsWith('minimax') || modelName.toLowerCase().startsWith('mimo')
-        if (isMiniMax) {
-          bj.reasoning_split = true
-        }
-
-        bodyStr = JSON.stringify(bj)
-      } catch { /* pass */ }
-      const patched = patchRequestBody(bodyStr, sessionId)
-      bodyToSend = Buffer.from(patched, 'utf8')
+    if (!shouldPatch) {
+      const reason = !isPost ? 'get'
+        : !isJson ? 'non_json'
+          : !sessionId ? 'no_session'
+            : sessionId === 'unknown' ? 'unknown_session'
+              : !modelName ? 'unknown_route'
+                : !routeTarget.reasoningKey ? 'model_not_patched'
+                  : 'unknown_route'
+      writeLog({ event: 'passthrough', model: modelName, session: sessionId.slice(-8) || 'none', reason })
     }
 
-    // Build upstream request options
-    // If base URL has a path prefix (e.g. /api/paas/v4), prepend it to req.url
+    // ── Build outgoing request body ──
+    let bodyToSend = rawBody
+    let assistantCount = 0
+    let patchReport = null
+    if (shouldPatch && rawBody.length > 0 && parsedBody) {
+      try {
+        const bj = parsedBody
+
+        // Kimi/Moonshot hardcode sampling params for thinking models.
+        const lower = modelName.toLowerCase()
+        const isKimi = lower.startsWith('kimi') || lower.startsWith('moonshot')
+        if (isKimi) {
+          for (const k of ['temperature', 'top_p', 'top_k', 'presence_penalty', 'frequency_penalty', 'n']) delete bj[k]
+          if (lower.startsWith('kimi-k2.7')) { delete bj.thinking; delete bj.reasoning_effort }
+        }
+        // MiniMax: keep thinking separate from content.
+        if (lower.startsWith('minimax')) bj.reasoning_split = true
+
+        const patched = patchRequestBody(JSON.stringify(bj), sessionId, routeTarget.reasoningKey)
+        bodyToSend = Buffer.from(patched.body, 'utf8')
+        assistantCount = patched.assistantCount
+        patchReport = patched.report
+        if (!patched.modified) stats.passthrough++
+        if (patchReport.assistantTurns > 0) {
+          writeLog({ event: 'inspect', model: modelName, session: sessionId.slice(-8), endpoint: req.url,
+            totalMessages: bj.messages.length, assistantTurns: patchReport.assistantTurns,
+            missingText: patchReport.missingText, missingReasoning: patchReport.missingReasoning })
+        }
+        if (patched.modified) {
+          writeLog({ event: 'patched', model: modelName, session: sessionId.slice(-8),
+            patchedFields: patchReport.turns.reduce((sum, turn) => sum + turn.fields.length, 0),
+            turns: patchReport.turns })
+        }
+      } catch { /* forward as-is */ }
+    }
+
+    // ── Upstream request options ──
     let upstreamPath = req.url
     const basePath = upstream.path || '/'
     if (basePath !== '/' && basePath !== '/v1') {
       upstreamPath = basePath + req.url.replace(/^\/v1/, '')
     }
-    const upstreamOptions = {
+    const transport = upstream.protocol === 'https:' ? https : http
+    const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-'])
+    const safeHeaders = {}
+    for (const [key, value] of Object.entries(req.headers)) {
+      const lowerKey = key.toLowerCase()
+      if (HOP_BY_HOP.has(lowerKey) || lowerKey.startsWith('proxy-')) continue
+      safeHeaders[key] = value
+    }
+    const proxyReq = transport.request({
       hostname: upstream.hostname,
       port: upstream.port || (upstream.protocol === 'https:' ? 443 : 80),
       path: upstreamPath,
       method: req.method,
+      agent: upstream.protocol === 'https:' ? httpsAgent : httpAgent,
       headers: {
-        ...req.headers,
+        ...safeHeaders,
         host: upstream.hostname,
         'content-length': bodyToSend.length,
+        'accept-encoding': 'identity', // force uncompressed so we can stream raw
       },
+    })
+
+    let responseClosed = false
+    const closeResponse = () => {
+      if (responseClosed) return
+      responseClosed = true
+      if (!res.destroyed) res.destroy()
+    }
+    const endError = (status, payload) => {
+      if (responseClosed) return
+      writeLog({ event: 'error', message: payload?.error || 'proxy error' })
+      responseClosed = true
+      if (!res.headersSent) {
+        res.writeHead(status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(payload))
+      } else if (!res.destroyed) {
+        res.destroy()
+      }
     }
 
-    // Use http or https depending on upstream
-    const transport = upstream.protocol === 'https:' ? https : http
-
-    const proxyReq = transport.request(upstreamOptions, (proxyRes) => {
-      // Forward response headers
-      res.writeHead(proxyRes.statusCode, proxyRes.headers)
-
-      const isStream = (proxyRes.headers['content-type'] || '').includes('text/event-stream')
-      const isOk = (proxyRes.statusCode || 500) < 400
-
-      if (shouldPatch && isStream && isOk) {
-        // Parse SSE stream to extract and cache reasoning_content
-        const parser = createStreamParser(sessionId, (index, reasoning) => {
-          const sc = getSessionCache(sessionId)
-          sc.set(index, reasoning)
-          console.log(`[Cache] session ${sessionId.slice(-8)}: stored reasoning turn ${index} (${reasoning.length} chars)`)
-        })
-
-        proxyRes.on('data', chunk => {
-          // parser.feed returns the (possibly modified) SSE text to forward
-          const forwardChunk = parser.feed(chunk)
-          res.write(forwardChunk)
-        })
-
-        proxyRes.on('end', () => {
-          parser.flush()
-          res.end()
-        })
-      } else {
-        // Non-streaming or non-reasoning: pipe directly
-        proxyRes.pipe(res)
-      }
+    proxyReq.setTimeout(UPSTREAM_TIMEOUT, () => {
+      endError(504, { error: 'upstream timeout' })
+      proxyReq.destroy()
     })
 
     proxyReq.on('error', (err) => {
-      console.error('[Proxy] upstream error:', err.message)
-      if (!res.headersSent) {
-        res.writeHead(502)
-        res.end(JSON.stringify({ error: 'upstream error', detail: err.message }))
+      if (DEBUG) console.error('[Proxy] upstream error:', err.message)
+      writeLog({ event: 'error', message: err.message })
+      endError(502, { error: 'upstream error', detail: err.message })
+    })
+
+    proxyReq.on('response', (proxyRes) => {
+      const isStream = (proxyRes.headers['content-type'] || '').includes('text/event-stream')
+      const isOk = (proxyRes.statusCode || 500) < 400
+      const isCompressed = !!proxyRes.headers['content-encoding']
+
+      // Forward response headers unchanged; client must decode compressed bytes.
+      const outHeaders = { ...proxyRes.headers }
+      res.writeHead(proxyRes.statusCode, outHeaders)
+
+      // Buffer ordinary JSON responses so reasoning can be cached too.
+      if (shouldPatch && !isStream && isOk && !isCompressed) {
+        const responseChunks = []
+        proxyRes.on('data', (chunk) => responseChunks.push(chunk))
+        proxyRes.on('end', () => {
+          if (responseClosed) return
+          const responseBody = Buffer.concat(responseChunks)
+          const reasoning = extractReasoningFromJson(responseBody.toString('utf8'))
+          if (reasoning) {
+            getSessionCache(sessionId).set(assistantCount, reasoning)
+            stats.stored++
+            writeLog({ event: 'cache_store', session: sessionId.slice(-8), turn: assistantCount, chars: reasoning.length })
+          }
+          responseClosed = true
+          res.end(responseBody)
+        })
+        proxyRes.on('error', closeResponse)
+        proxyRes.on('aborted', closeResponse)
+        return
       }
+
+      if (!shouldPatch || !isStream || !isOk || isCompressed) {
+        proxyRes.pipe(res)
+        proxyRes.on('error', closeResponse)
+        proxyRes.on('aborted', closeResponse)
+        return
+      }
+
+      // Reasoning stream: forward RAW bytes immediately, parse only for cache.
+      const parser = createStreamParser(sessionId, assistantCount, (index, reasoning) => {
+        const sc = getSessionCache(sessionId)
+        sc.set(index, reasoning)
+        stats.stored++
+        writeLog({ event: 'cache_store', session: sessionId.slice(-8), turn: index, chars: reasoning.length })
+        if (DEBUG) console.log(`[Cache] ${sessionId.slice(-8)}: stored turn ${index} (${reasoning.length} chars)`)
+      })
+
+      let parserDead = false
+      proxyRes.on('data', (chunk) => {
+        if (responseClosed) return
+        res.write(chunk)        // raw forward — zero re-serialization
+        if (!parserDead) {
+          try { parser.feed(chunk) } catch { parserDead = true }
+        }
+      })
+      proxyRes.on('end', () => {
+        if (responseClosed) return
+        parser.flush(); responseClosed = true; res.end()
+      })
+      proxyRes.on('error', closeResponse)
+      proxyRes.on('aborted', closeResponse)
     })
 
     proxyReq.write(bodyToSend)
     proxyReq.end()
   })
 
-  req.on('error', (err) => {
-    console.error('[Proxy] request error:', err.message)
-  })
+  req.on('error', (err) => { if (DEBUG) console.error('[Proxy] request error:', err.message) })
 })
 
 server.listen(PORT, '127.0.0.1', () => {
+  writeLog({ event: 'proxy_started', port: PORT, version: '3.1.4', upstream: UPSTREAM_URL || 'model-routing', pid: process.pid })
   if (UPSTREAM_URL) {
-    console.log(`[Proxy] fixed-upstream proxy on http://127.0.0.1:${PORT}`)
-    console.log(`[Proxy] upstream: ${UPSTREAM_URL}`)
+    console.log(`[Proxy] fixed-upstream proxy on http://127.0.0.1:${PORT} -> ${UPSTREAM_URL}`)
   } else {
     console.log(`[Proxy] universal model-routing proxy on http://127.0.0.1:${PORT}`)
     console.log(`[Proxy] ${Object.keys(ROUTES).length} model prefixes loaded`)
@@ -393,30 +293,16 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`[Proxy] in opencode.json set baseURL to http://127.0.0.1:${PORT}/v1`)
 })
 
-server.on('error', (err) => {
-  console.error('[Proxy] server error:', err.message)
-  process.exit(1)
-})
+server.on('error', (err) => { console.error('[Proxy] server error:', err.message); process.exit(1) })
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 function shutdown(signal) {
   console.log(`[Proxy] received ${signal}, shutting down gracefully...`)
-  // Log cache stats before clearing
   let totalEntries = 0
-  for (const [, sessionMap] of cache.cache) {
-    totalEntries += sessionMap.size
-  }
+  for (const [, sessionMap] of cache.cache) totalEntries += sessionMap.size
   console.log(`[Proxy] ${cache.cache.size} session(s), ${totalEntries} cached turn(s)`)
-  server.close(() => {
-    console.log('[Proxy] server closed')
-    process.exit(0)
-  })
-  // Force exit after 5 seconds if connections don't drain
-  setTimeout(() => {
-    console.error('[Proxy] forced exit after timeout')
-    process.exit(1)
-  }, 5000).unref()
+  server.close(() => { console.log('[Proxy] server closed'); process.exit(0) })
+  setTimeout(() => { console.error('[Proxy] forced exit after timeout'); process.exit(1) }, 5000).unref()
 }
-
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT',  () => shutdown('SIGINT'))

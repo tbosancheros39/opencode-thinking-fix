@@ -1,0 +1,17 @@
+# Defense-in-depth: package.json's `files` list is the authoritative package
+# allowlist, but these local-only paths must never enter an npm tarball.
+AGENTS.md
+CHANGELOG.md
+tests/
+docs/
+.serena/
+node_modules/
+
+# Only the public README and license are allowed as Markdown package files.
+*.md
+!README.md
+!LICENSE.md
+
+# Local configuration JSON is never a package asset. npm still includes the
+# required package.json metadata automatically.
+*.json

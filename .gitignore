@@ -1,25 +1,84 @@
-node_modules/
+# ─────────────────────────────────────────────────────────────────────────────
+# Public-repository allowlist: ignore everything unless it is explicitly
+# listed below. Local notes, evidence, tests, caches, and documents stay on
+# the developer machine and cannot be added accidentally.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Ignore everything at the repo root by default
+/*
+
+# Public release files
+!/.gitignore
+!/.npmignore
+!/.npmrc
+!/README.md
+!/LICENSE.md
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/.github/
+!/.github/**
+!/proxy/
+!/proxy/**
+!/systemd/
+!/systemd/**
+!/watchdog/
+!/watchdog/**
+!/plugins/
+!/plugins/**
+
+# Root JSON is local by default; only audited package metadata/config stays public.
+/*.json
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+
+# Local-only material: never publish
+/AGENTS.md
+/CHANGELOG.md
+/tests/
+/docs/
+/.serena/
+/node_modules/
+
+# Never publish Markdown other than the public README and license.
+*.md
+!README.md
+!LICENSE.md
+
+# Credentials, private keys, and temporary patch artifacts
+auth.json
+credentials*
+secrets*
+*.pem
+*.key
+*.p12
+*.pfx
+*.private
+*.orig
+*.rej
+*.tmp
+
+# Build and local tooling safety nets
 dist/
 coverage/
 .nyc_output/
-
-# Environment
 .env
 .env.*
-
-# Build artifacts
+*.env
 *.tgz
 *.tsbuildinfo
-
-# OS junk
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.backup
+*.jsonl
+*.ndjson
 .DS_Store
 Thumbs.db
-
-# Logs
 *.log
 *.log.*
-
-# Editor/IDE
 .idea/
 .vscode/
 *.swp

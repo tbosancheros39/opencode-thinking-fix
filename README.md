@@ -10,7 +10,7 @@
 npm install opencode-thinking-fix
 ```
 
-> Fix for the `reasoning_content` 400 error that kills multi-turn conversations with DeepSeek, Kimi, GLM, MiMo, and MiniMax-M3 in OpenCode.
+> Fix for reasoning being dropped from multi-turn conversations with DeepSeek, Kimi, GLM, MiMo, and MiniMax-M3.
 >
 > **Zero config.** Install via `Ctrl+P`, restart OpenCode, done. The plugin auto-detects reasoning models and only patches when needed.
 >
@@ -20,10 +20,78 @@ Your AI has a secret notebook.
 
 When DeepSeek or Kimi answers you, it scribbles notes first. "Let me think... the user wants a login page... I should use React Hook Form... check the API docs..." These notes are `reasoning_content`. You never see them. But the AI needs them.
 
-OpenCode throws the notebook away. Next turn, the AI reaches for it — but OpenCode already handed the request to the API without it. The API returns HTTP 400. Or worse, OpenCode hands back a blank notebook. The AI doesn't crash, but it forgot everything it was thinking. That is why your AI seems dumber on turn 2. It's not dumber. It just lost its notes.
+The client and its SDK throw the notebook away. Next turn, the AI reaches for it — but the request already went to the API without it. The request carries no notes, or a blank notebook. The AI doesn't crash, but it forgot everything it was thinking. That is why your AI seems dumber on turn 2. It's not dumber. It just lost its notes.
 
-**Without the plugin:** "Build me a login page." → AI builds it. "Now add password reset." → 400 error, conversation dead.  
+The drop happens in SDK serializers and client transforms (truthy checks, missing type members, stripped signatures), not in the providers — the providers are doing exactly what their docs say.
+
+**Without the plugin:** "Build me a login page." → AI builds it. "Now add password reset." → AI lost its notes, conversation degrades.
+
 **With the plugin:** "Build me a login page." → AI builds it, notes saved. "Now add password reset." → AI reads its notes: "I used React Hook Form for login, I'll extend that for password reset." → Works.
+
+---
+
+## ELI15 — what this thing actually does
+
+Imagine you're doing homework with a friend (the AI) over text messages. Your friend is smart but **forgetful between messages**. Every time they answer, they first scribble their thinking on a **sticky note** (that's `reasoning_content`) — but you never see the note, and the note gets **thrown away** before your friend reads the next message.
+
+So when you say "ok now change the color," your friend has no memory of *why* they picked the blue button, gets confused, and gives a worse answer (the "dumber on turn 2" feeling).
+
+Three facts make this messy:
+
+1. **The sticky notes are non-standard.** Normal chat apps don't have a "thinking note" field. So the tool that carries your messages back and forth (OpenCode, Cursor, Roo, etc.) simply **doesn't know the note exists** and drops it.
+2. **The teachers (Chinese AI companies: DeepSeek, Kimi, GLM, MiMo, MiniMax) demand the note back.** Their rules say: "if you don't hand me the exact sticky note from last time, I refuse to answer."
+3. **Some teachers are picky about the note being present**, not missing. Kimi K2.7-Code accepts a present-but-empty note. Others (DeepSeek, Kimi K2.5/2.6, GLM, MiMo) accept a blank one but then they "forget" and do worse.
+
+What this repo does about it:
+
+- **The plugin** is a tiny note-checker that runs inside OpenCode. It looks at every message and, if a note is missing, it slips a blank note in so the teacher doesn't yell. Cheap, but the teacher still forgets (blank note = no memory).
+- **The proxy** is a smarter middle-man that sits between OpenCode and the teacher. It **reads the real sticky note off each answer, remembers it, and pastes the actual writing back** into the next message. Now the teacher remembers, and your friend stays sharp. (v3 rewrote the proxy so it does this with almost zero slowdown — see below.)
+- **The watchdog** is just a babysitter that restarts the proxy if it ever crashes.
+
+Bottom line: **the proxy is what makes the AI actually remember its thinking. The plugin is a safety net. The watchdog keeps the lights on.**
+
+---
+
+## v3 proxy rewrite — performance + correctness
+
+The proxy (`proxy/proxy.js`) was rewritten to remove the slowdown you were hitting:
+
+- **Raw-byte streaming.** Responses are now forwarded as-is; the stream is parsed *only* to cache the note. No more re-building every token before sending it to you.
+- **Lazy patching.** If OpenCode already hands the notes back correctly (newer builds do), the proxy does **nothing** — zero JSON rewriting, zero overhead.
+- **Correct note placement (the big bug fix).** Earlier versions pasted every note into the *first* slot, so turn 3+ forgot everything. v3 stores each note in its own correct slot, so every turn replays *its own* thinking.
+- **Keep-alive connections + upstream timeout.** Fewer TLS handshakes, no hung requests.
+
+## v3.1 — dialect-aware patching (intel-driven)
+
+Provider-specific research showed the field name is **not universal** and the "echo everything" heuristic was
+causing cross-provider poisoning. v3.1 fixes that:
+
+- **Echo only the field the upstream expects.** Each route declares a `reasoningKey`:
+  `reasoning_content` (DeepSeek/Kimi/Moonshot/GLM/Zhipu/MiMo), `reasoning_details`
+  (MiniMax split mode), `reasoning` (OpenCode Go / fixed-upstream). Previously the proxy
+  filled all three fields, so a GLM turn stored under `reasoning` could poison a later
+  DeepSeek replay that expects `reasoning_content`.
+- **R1 vs V4 split.** `deepseek-reasoner` (R1) must **not** receive reasoning echoed back
+  (400 if you do) while V4 must. R1 now routes with `reasoningKey: null`.
+- **Never fabricate reasoning.** Unknown models and providers that reject echo
+  (Qwen, GPT, Claude, Gemini, Llama, Mistral, Cerebras-hosted GLM) default to
+  `reasoningKey: null` — the body is forwarded untouched.
+
+### "Another way" — do you even need the plugin now?
+
+The reasoning-drop is fixed at the wire layer by the proxy, so you have three options:
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Proxy-only (recommended)** — keep a *slim* plugin that only tags sessions with `x-session-id`, let the proxy do all note-handling | Real reasoning replay, near-zero overhead, correct across all turns | One extra localhost process to run |
+| **Native / disable thinking** — point at the provider's Anthropic-compatible endpoint (e.g. DeepSeek `/anthropic`) or set `thinking: disabled` | No extra process, simplest | Loses ~20–40% reasoning quality on hard coding tasks |
+| **Full plugin + proxy** (old default) | Maximum safety net | Plugin's per-message transform adds overhead inside OpenCode |
+
+**Recommendation:** run the proxy, and slim the plugin down to *just* the `x-session-id` header injection (delete its message-transform hook). That gives you real reasoning replay with the least overhead.
+
+## Plugin deprecation and derived sessions
+
+As of 3.0, plugin is deprecated. Proxy derives session identity from request when `x-session-id` is absent. Formula: `sha256(authHeader || '' || modelName || firstUserMessageText)`, prefixed with `derived:` and truncated to 32 hex characters; header wins when present. Rare bounded collision: conversations sharing same first user message, model, and auth key share cache key, causing minor reasoning cross-talk that self-heals as turns diverge.
 
 ---
 
@@ -56,7 +124,7 @@ opencode plugin opencode-thinking-fix
 For a specific version:
 
 ```bash
-opencode plugin opencode-thinking-fix@2.0.0
+opencode plugin opencode-thinking-fix@3.1.4
 ```
 
 Restart OpenCode after installing.
@@ -82,31 +150,27 @@ See also: [OpenCode plugin docs](https://opencode.ai/docs/plugins)
 ---
 
 - [What problem this fixes](#what-problem-this-fixes)
-- [Option 1: Plugin (stops the crashes)](#option-1-plugin-stops-the-crashes)
+- [Option 1: Plugin (safety net)](#option-1-plugin-safety-net)
 - [Option 2: Proxy (replays real reasoning)](#option-2-proxy-replays-real-reasoning)
 - [Option 3: Watchdog (auto-recovery)](#option-3-watchdog-auto-recovery)
 - [How they work together](#how-they-work-together)
 - [Affected models](#affected-models)
 - [Model routing](#model-routing)
 - [Is it working?](#is-it-working)
-- [Running tests](#running-tests)
 - [This bug is everywhere](#this-bug-is-everywhere)
 - [Files in this repo](#files-in-this-repo)
-- [Changelog](#changelog)
 
 ---
 
 ## What problem this fixes
 
-You ask DeepSeek a question. It picks a tool, calls it, works fine. Then you ask a follow-up and you get this:
+You ask DeepSeek a question. It picks a tool, calls it, works fine. Then you ask a follow-up — and the AI has lost the reasoning it produced on every earlier turn.
 
-```
-HTTP 400: The reasoning_content in the thinking mode must be passed back to the API
-```
+The client/SDK dropped the field before it reached the API — the providers are doing exactly what their docs say. The drop happens in SDK serializers and client transforms.
 
-This is OpenCode dropping the field before it reaches the API — the providers are doing exactly what their docs say.
+> **Deprecated:** the historical symptom of this drop — `HTTP 400: The reasoning_content in the thinking mode must be passed back to the API` — is **resolved** by this fix. This repo is about the drop itself, not the error it used to cause.
 
-DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) say it clearly: if you do not pass back `reasoning_content` correctly, the API returns a 400 error. All five providers confirm this in their official documentation:
+DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) say it clearly: if you do not pass back `reasoning_content` correctly, the API rejects the request. All five providers confirm this in their official documentation:
 
 - **DeepSeek**: "[The reasoning_content will be ignored by the API](https://api-docs.deepseek.com/guides/thinking_mode)", but the conversation history must contain the field.
 - **Z.AI / GLM**: "[Key: return reasoning_content to keep the reasoning coherent](https://docs.z.ai/en/api/thinking)."
@@ -114,13 +178,12 @@ DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content`
 - **MiniMax**: "[The complete model response must be append to the conversation history](https://platform.minimaxi.com/document/ChatCompletion%20v2)."
 - **Xiaomi MiMo**: "[Any assistant message with tool calls... must preserve its full reasoning_content field, otherwise the API will return a 400 error](https://dev.mi.com/doc/llm-api). Affected frameworks include TRAE, Cursor, Roo Code, Codex, GitHub Copilot CLI, Zed, AutoGen."
 
-OpenCode's provider layer drops this field. Three upstream PRs ([#24250](https://github.com/anomalyco/opencode/pull/24250), [#24428](https://github.com/anomalyco/opencode/pull/24428), [#24895](https://github.com/anomalyco/opencode/pull/24895)) tried to fix it. None merged. The field is non-standard per OpenAI, so both OpenCode and the AI SDK ignore it.
-
-This repo fixes it. Three layers, pick what you need.
+The field is non-standard per OpenAI, so SDKs and clients ignore it — the drop is
+systemic, not a single tool's bug. This repo fixes it. Three layers, pick what you need.
 
 ---
 
-## Option 1: plugin (stops the crashes)
+## Option 1: plugin (safety net)
 
 ### Install via npm (recommended)
 
@@ -141,7 +204,7 @@ It also handles `reasoning` for the OpenCode Go provider, and patches empty `con
 
 No config file changes. No build step. OpenCode compiles `.ts` plugins when it starts.
 
-**The catch:** the plugin fills in empty strings, not your model's actual prior thinking. DeepSeek, Kimi K2.5/K2.6, GLM, and MiMo accept empty strings fine, your conversation works but the model does not see its earlier reasoning. Kimi K2.7 Code rejects empty strings entirely, it needs the real text.
+**The catch:** the plugin fills in empty strings, not your model's actual prior thinking. DeepSeek, Kimi K2.5/K2.6, GLM, and MiMo accept empty strings fine, your conversation works but the model does not see its earlier reasoning. Kimi K2.7 Code requires the field to be present; present-but-empty is accepted.
 
 ---
 
@@ -160,7 +223,7 @@ The proxy runs on **two ports**:
 | **3457** | Direct providers (DeepSeek, Kimi, GLM, MiMo, GPT, Claude, Qwen, Gemini, etc.) | `PORT=3457` |
 | **3458** | OpenCode Go provider | `PORT=3458` `UPSTREAM_URL=https://opencode.ai/zen/go/v1` |
 
-Port 3457 auto-routes based on model name using the built-in route table. Port 3458 is a fixed-upstream proxy specifically for the OpenCode Go provider, which uses `delta.reasoning` (not `reasoning_content`) in its SSE streams. Both are handled by the same `proxy.js` binary, just different environment variables.
+Port 3457 auto-routes based on model name using the built-in route table. Port 3458 is a fixed-upstream proxy specifically for the OpenCode Go provider. It handles the provider's supported chat and Anthropic message dialects, while passing unsupported response formats through unchanged. Both are handled by the same `proxy.js` binary, just different environment variables.
 
 ```bash
 # Linux / macOS / Windows (Node.js required)
@@ -171,6 +234,44 @@ PORT=3458 UPSTREAM_URL=https://opencode.ai/zen/go/v1 node proxy/proxy.js
 ```
 
 > **Windows PowerShell:** use `$env:PORT=3457; node proxy/proxy.js` (PowerShell) or `set PORT=3457 && node proxy/proxy.js` (CMD).
+
+### OpenCode Go setup (explicit and credentials-safe)
+
+The npm package intentionally does **not** run a `postinstall` script. It never
+reads `auth.json`, edits your OpenCode configuration, starts a process, or
+enables a service without your explicit action.
+
+1. In OpenCode, run `/connect` and select **OpenCode Go**. Keep the credential
+   in OpenCode's own local auth store; never paste it into this repository,
+   `opencode.json`, a shell script, or a public issue.
+2. Install the package and start its Go proxy manually:
+
+```bash
+npm install opencode-thinking-fix
+PORT=3458 UPSTREAM_URL=https://opencode.ai/zen/go/v1 \
+  node node_modules/opencode-thinking-fix/proxy/proxy.js
+```
+
+3. Point only the OpenCode Go provider at the local proxy. The `baseURL` must
+   be under `provider.<id>.options`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "opencode-go": {
+      "options": {
+        "baseURL": "http://127.0.0.1:3458/v1"
+      }
+    }
+  }
+}
+```
+
+The proxy forwards the authorization header supplied by OpenCode to the
+configured upstream and does not persist the credential. Stop the proxy when
+it is not needed. The systemd and watchdog options below are deliberately
+opt-in alternatives for operators who want automatic restarts.
 
 ### Install as systemd services (auto-start at boot)
 
@@ -189,10 +290,14 @@ Then point OpenCode at it, in your `opencode.json`:
 {
   "provider": {
     "deepseek-v4-pro": {
-      "baseURL": "http://127.0.0.1:3457/v1"
+      "options": {
+        "baseURL": "http://127.0.0.1:3457/v1"
+      }
     },
     "opencode-go": {
-      "baseURL": "http://127.0.0.1:3458/v1"
+      "options": {
+        "baseURL": "http://127.0.0.1:3458/v1"
+      }
     }
   }
 }
@@ -228,7 +333,7 @@ OpenCode → [plugin patches missing reasoning_content/reasoning]
          → API
 ```
 
-The plugin is the safety net. If the proxy goes down, the plugin still injects empty strings so you do not get 400s. If the proxy is up, its cached text takes priority because the plugin sees the field is already filled in. Either way, your conversation does not break.
+The plugin is the safety net. If the proxy goes down, the plugin still injects empty strings so reasoning is never missing from the request. If the proxy is up, its cached text takes priority because the plugin sees the field is already filled in. Either way, your conversation keeps its thinking.
 
 ---
 
@@ -236,28 +341,29 @@ The plugin is the safety net. If the proxy goes down, the plugin still injects e
 
 | Model | Plugin helps | Proxy helps | What it needs |
 |---|---|---|---|
-| DeepSeek V4 Pro / Flash | Yes | Nice to have | Accepts `""` |
+| DeepSeek V4 Pro / Flash | Yes | Nice to have | Accepts `""` (tool-call turns need real text) |
 | Kimi K2.5 / K2.6 | Yes | Nice to have | Accepts `""` |
-| **Kimi K2.7 Code** | **Not enough alone** | **Required** | Needs real text |
+| **Kimi K2.7 Code** | **Not enough alone** | **Required** | Field must be *present*; real text keeps it coherent |
 | GLM-5.x / Zhipu | Yes | Nice to have | Accepts `""` |
-| MiMo V2.5 / MiniMax | Yes | Nice to have | Accepts `""` (default mode embeds `<think>` in `content`) |
+| MiMo V2.5 | Yes | Nice to have | `reasoning_content` on `api.xiaomimimo.com/v1` |
 | **MiniMax-M3** | Yes | **Recommended** | `reasoning_details[]` array; ~40% quality loss if stripped. Proxy injects `reasoning_split:true` to keep thinking separate from content. |
-| OpenCode Go | Yes | Required | Uses `reasoning` field |
+| OpenCode Go | Yes | Recommended for chat/message routes | Chat uses `reasoning`; Anthropic messages are handled; unsupported response formats pass through |
 | Qwen, GPT, Claude, Gemini, Llama, Mistral | No | No | No reasoning_content |
 
 ---
 
 ## Model routing (proxy port 3457)
 
-The proxy auto-routes by model name prefix. All 15 supported prefixes:
+The proxy auto-routes by model name prefix. All routes:
 
 | Prefix | Upstream | Reasoning |
 |---|---|---|
-| `deepseek-v4-pro` | `https://api.deepseek.com` | Yes |
-| `deepseek` | `https://api.deepseek.com` | Yes |
-| `kimi`, `moonshot` | `https://api.moonshot.ai/v1` | Yes |
-| `glm`, `zhipu` | `https://open.bigmodel.cn/api/paas/v4` | Yes |
-| `minimax`, `mimo` | `https://api.minimax.io/v1` | Yes |
+| `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-chat` | `https://api.deepseek.com` | Yes (`reasoning_content`) |
+| `deepseek-reasoner` | `https://api.deepseek.com` | **No — must NOT echo** (R1 contract) |
+| `kimi`, `moonshot` | `https://api.moonshot.ai/v1` | Yes (`reasoning_content`) |
+| `glm`, `zhipu` | `https://open.bigmodel.cn/api/paas/v4` | Yes (`reasoning_content`) |
+| `minimax` | `https://api.minimax.io/v1` | Yes (`reasoning_details`, `reasoning_split:true`) |
+| `mimo` | `https://api.xiaomimimo.com/v1` | Yes (`reasoning_content`) |
 | `gpt`, `o1` | `https://api.openai.com` | No |
 | `claude`, `anthropic` | `https://api.anthropic.com` | No |
 | `qwen` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | No |
@@ -278,8 +384,8 @@ The plugin writes a structured JSON log: `~/.local/share/opencode/thinking-fix.l
 Before and after, from a real session:
 
 ```
-Before:  HTTP 400: The reasoning_content in the thinking mode must be passed back to the API
-After:   34 fields patched across a 104-message session → conversation continues
+Before:  reasoning dropped on every turn → AI forgets its thinking
+After:   34 fields patched across a 104-message session → reasoning replays correctly
 ```
 
 Here is a live excerpt from that session:
@@ -308,23 +414,6 @@ curl http://127.0.0.1:3458/health          # → {"ok":true,"uptime":1225}
 journalctl --user -u reasoning-cache.service -f
 journalctl --user -u reasoning-cache-go.service -f
 ```
-
----
-
-## Running tests
-
-```bash
-npm test
-# or directly:
-node tests/test-plugin.js
-node tests/test-proxy.js
-```
-
-The plugin tests cover 12 cases: native reasoning model detection, OpenCode Go `reasoning` field detection, non-reasoning model passthrough, mixed messages, multiple assistant turns, already-complete messages, wrapper format (`{ info: Message }`), empty `reasoning_content`, empty arrays, tool_calls with reasoning and without, and null/undefined wrappers.
-
-The proxy tests cover 15 cases: route resolution for all model prefixes, `patchRequestBody` injection from cache for both `reasoning_content` and `reasoning`, no-cache fallback to empty strings, user message isolation, multi-turn caching, and SSE stream parsing for `delta.reasoning_content`, `delta.reasoning`, content-triggered flush, and `finish_reason` flush.
-
----
 
 ## This bug is everywhere
 
@@ -356,10 +445,8 @@ OpenCode is not the only tool that drops `reasoning_content`. Here is a partial 
 plugins/
   opencode-thinking-fix-universal.ts   # self-detection plugin (92 lines)
 proxy/
-  proxy.js                              # reasoning cache proxy (422 lines, 1 dep)
-tests/
-  test-plugin.js                        # plugin unit tests (228 lines, 12 cases)
-  test-proxy.js                         # proxy unit tests (359 lines, 15 cases)
+  core.js                               # pure logic: routes, cache, patching, parser (138 lines)
+  proxy.js                              # HTTP server + side effects (266 lines, 1 dep)
 watchdog/
   watchdog.sh                           # auto-recovery watchdog (64 lines)
 systemd/
@@ -368,9 +455,13 @@ systemd/
   reasoning-proxy-watchdog.service      # watchdog systemd unit
 ```
 
-## Changelog
+## Release highlights
 
-See [CHANGELOG.md](CHANGELOG.md) for release history. Current: **v2.0.0** — eventsource-parser, LRU cache, SIGTERM handling, 12+15 passing tests.
+- **v3.1.4:** proxy-owned structured JSONL logging with session identifiers truncated in logs.
+- **v3.1.3:** Anthropic-wire dialect detection for OpenCode Go routes.
+- **v3.1.2:** bounded cache/session memory, raw-stream preservation, hop-by-hop header removal, and safer parser failure handling.
+- **v3.1.1:** corrected MiMo routing, non-streaming reasoning caching, and fixed partial-turn patching.
+- **v3.1:** provider-aware reasoning fields, including the DeepSeek R1 no-echo route and safe passthrough for unknown models.
 
 ---
 

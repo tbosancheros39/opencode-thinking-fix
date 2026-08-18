@@ -1,6 +1,6 @@
 {
   "name": "opencode-thinking-fix",
-  "version": "2.0.1",
+  "version": "3.1.4",
   "description": "Fix reasoning_content 400 errors for DeepSeek/Kimi/GLM/MiMo/MiniMax in OpenCode",
   "type": "module",
   "license": "MIT",
@@ -61,20 +61,15 @@
   },
   "files": [
     "plugins/opencode-thinking-fix-universal.ts",
+    "proxy/core.js",
     "proxy/proxy.js",
     "systemd/reasoning-cache.service",
     "systemd/reasoning-cache-go.service",
     "systemd/reasoning-proxy-watchdog.service",
     "watchdog/watchdog.sh",
-    "tests/test-plugin.js",
-    "tests/test-proxy.js",
     "README.md",
-    "CHANGELOG.md",
     "LICENSE.md"
   ],
-  "scripts": {
-    "test": "node tests/test-plugin.js && node tests/test-proxy.js"
-  },
   "dependencies": {
     "eventsource-parser": "^3.1.0"
   },
@@ -90,6 +85,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@types/node": "^18.19.130",
     "typescript": "^6.0.3"
   }
 }
