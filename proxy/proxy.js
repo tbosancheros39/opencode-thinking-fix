@@ -1,7 +1,7 @@
 'use strict'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OpenCode Reasoning Cache Proxy  —  v3.1 (performance + correctness + dialect)
+// OpenCode Reasoning Cache Proxy  —  v3.2 (performance + correctness + dialect)
 //
 // What it does:
 //   - Sits between OpenCode and DeepSeek/Kimi/GLM/MiMo/MiniMax on localhost:3457
@@ -34,6 +34,12 @@
 //   used to 400 against DeepSeek which expects `reasoning_content`).
 //   deepseek-reasoner (R1) is null: it must NOT receive reasoning echoed back.
 //   Unknown models default to null (never fabricate reasoning).
+//
+// Sentinel fix (v3.2):
+//   R1 (deepseek-r1 / deepseek-reasoner) now uses reasoningKey 'strip' — the
+//   request is admitted to patchRequestBody to actively REMOVE reasoning fields
+//   (shouldPatch), but excluded from response-side caching (shouldCache). All
+//   other null routes stay null (never fabricate, never strip). See v3.2.0.
 //
 // Deployment:
 //   node proxy.js
@@ -108,6 +114,9 @@ const server = http.createServer((req, res) => {
       sessionId = deriveSessionId(modelName, parsedBody, req.headers['authorization']) || 'unknown'
     }
     const shouldPatch = isPost && isJson && !!routeTarget.reasoningKey && !!sessionId && sessionId !== 'unknown'
+    // 'strip' routes (R1) are admitted to patchRequestBody (to REMOVE reasoning)
+    // but never cached for replay — reasoning must never be echoed back to R1.
+    const shouldCache = shouldPatch && routeTarget.reasoningKey !== 'strip'
 
     if (!shouldPatch) {
       const reason = !isPost ? 'get'
@@ -131,12 +140,16 @@ const server = http.createServer((req, res) => {
         // Kimi/Moonshot hardcode sampling params for thinking models.
         const lower = modelName.toLowerCase()
         const isKimi = lower.startsWith('kimi') || lower.startsWith('moonshot')
-        if (isKimi) {
+        // F9: model-specific body tweaks are model-routing-mode only (3457).
+        // In fixed-upstream (OpenCode Go) mode the upstream owns per-model
+        // handling, so sampling params are left untouched.
+        if (!UPSTREAM_URL && isKimi) {
           for (const k of ['temperature', 'top_p', 'top_k', 'presence_penalty', 'frequency_penalty', 'n']) delete bj[k]
           if (lower.startsWith('kimi-k2.7')) { delete bj.thinking; delete bj.reasoning_effort }
         }
         // MiniMax: keep thinking separate from content.
-        if (lower.startsWith('minimax')) bj.reasoning_split = true
+        // F10: same mode gate — only inject reasoning_split in routing mode.
+        if (!UPSTREAM_URL && lower.startsWith('minimax')) bj.reasoning_split = true
 
         const patched = patchRequestBody(JSON.stringify(bj), sessionId, routeTarget.reasoningKey)
         bodyToSend = Buffer.from(patched.body, 'utf8')
@@ -163,7 +176,7 @@ const server = http.createServer((req, res) => {
       upstreamPath = basePath + req.url.replace(/^\/v1/, '')
     }
     const transport = upstream.protocol === 'https:' ? https : http
-    const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-'])
+    const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-', 'x-session-id'])
     const safeHeaders = {}
     for (const [key, value] of Object.entries(req.headers)) {
       const lowerKey = key.toLowerCase()
@@ -218,20 +231,26 @@ const server = http.createServer((req, res) => {
       const isOk = (proxyRes.statusCode || 500) < 400
       const isCompressed = !!proxyRes.headers['content-encoding']
 
-      // Forward response headers unchanged; client must decode compressed bytes.
+      // Forward response headers, stripping hop-by-hop headers first (F2).
+      // Node manages transfer-encoding/content-length on the client leg, so
+      // forwarding the upstream's chunking/connection headers would corrupt
+      // the re-streamed response. This single site covers all three response
+      // paths below (buffered JSON, passthrough pipe, reasoning stream).
       const outHeaders = { ...proxyRes.headers }
+      for (const h of ['transfer-encoding', 'connection', 'keep-alive', 'te', 'trailer', 'upgrade', 'proxy-authenticate', 'proxy-authorization']) {
+        delete outHeaders[h]
+      }
       res.writeHead(proxyRes.statusCode, outHeaders)
 
       // Buffer ordinary JSON responses so reasoning can be cached too.
-      if (shouldPatch && !isStream && isOk && !isCompressed) {
+      if (shouldCache && !isStream && isOk && !isCompressed) {
         const responseChunks = []
         proxyRes.on('data', (chunk) => responseChunks.push(chunk))
         proxyRes.on('end', () => {
           if (responseClosed) return
           const responseBody = Buffer.concat(responseChunks)
           const reasoning = extractReasoningFromJson(responseBody.toString('utf8'))
-          if (reasoning) {
-            getSessionCache(sessionId).set(assistantCount, reasoning)
+          if (reasoning && getSessionCache(sessionId).set(assistantCount, reasoning)) {
             stats.stored++
             writeLog({ event: 'cache_store', session: sessionId.slice(-8), turn: assistantCount, chars: reasoning.length })
           }
@@ -243,7 +262,7 @@ const server = http.createServer((req, res) => {
         return
       }
 
-      if (!shouldPatch || !isStream || !isOk || isCompressed) {
+      if (!shouldCache || !isStream || !isOk || isCompressed) {
         proxyRes.pipe(res)
         proxyRes.on('error', closeResponse)
         proxyRes.on('aborted', closeResponse)
@@ -253,10 +272,11 @@ const server = http.createServer((req, res) => {
       // Reasoning stream: forward RAW bytes immediately, parse only for cache.
       const parser = createStreamParser(sessionId, assistantCount, (index, reasoning) => {
         const sc = getSessionCache(sessionId)
-        sc.set(index, reasoning)
-        stats.stored++
-        writeLog({ event: 'cache_store', session: sessionId.slice(-8), turn: index, chars: reasoning.length })
-        if (DEBUG) console.log(`[Cache] ${sessionId.slice(-8)}: stored turn ${index} (${reasoning.length} chars)`)
+        if (sc.set(index, reasoning)) {
+          stats.stored++
+          writeLog({ event: 'cache_store', session: sessionId.slice(-8), turn: index, chars: reasoning.length })
+          if (DEBUG) console.log(`[Cache] ${sessionId.slice(-8)}: stored turn ${index} (${reasoning.length} chars)`)
+        }
       })
 
       let parserDead = false
@@ -283,7 +303,7 @@ const server = http.createServer((req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  writeLog({ event: 'proxy_started', port: PORT, version: '3.1.4', upstream: UPSTREAM_URL || 'model-routing', pid: process.pid })
+  writeLog({ event: 'proxy_started', port: PORT, version: '3.2.0', upstream: UPSTREAM_URL || 'model-routing', pid: process.pid })
   if (UPSTREAM_URL) {
     console.log(`[Proxy] fixed-upstream proxy on http://127.0.0.1:${PORT} -> ${UPSTREAM_URL}`)
   } else {

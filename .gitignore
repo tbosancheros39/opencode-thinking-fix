@@ -33,11 +33,7 @@
 !/package-lock.json
 !/tsconfig.json
 
-# Local-only material: never publish
-/AGENTS.md
-/CHANGELOG.md
-/tests/
-/docs/
+# Local-only material: never publish (CHANGELOG.md, tests/, docs/ published selectively below)
 /.serena/
 /node_modules/
 
@@ -45,6 +41,7 @@
 *.md
 !README.md
 !LICENSE.md
+!/AGENTS.md
 
 # Credentials, private keys, and temporary patch artifacts
 auth.json
@@ -84,3 +81,13 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# ── Selective publish (override the local-only + *.md rules above) ──
+!/CHANGELOG.md
+!/tests/
+!/docs/
+/docs/*
+!/docs/adr-0002-deferred-wire-split.md
+/docs/memory/
+/docs/for-vibercoder.md
+/docs/*.validated.md
