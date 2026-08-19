@@ -20,7 +20,11 @@ jobs:
       - name: Validate package boundary
         run: |
           npm pack --dry-run --json > /tmp/opencode-thinking-fix-pack.json
-          node -e "const fs=require('node:fs'); const pack=JSON.parse(fs.readFileSync('/tmp/opencode-thinking-fix-pack.json','utf8'))[0]; const files=pack.files.map(f=>f.path); const forbidden=files.filter(f=>/(^|\\/)(tests|docs|node_modules|\\.serena)(\\/|$)|(^|\\/)(AGENTS|CHANGELOG)\\.md$/.test(f)); if(forbidden.length){console.error('Forbidden package files:',forbidden); process.exit(1)} if(!files.includes('proxy/core.js')){console.error('proxy/core.js missing from package'); process.exit(1)}"
+          node -e "const fs=require('node:fs'); const pack=JSON.parse(fs.readFileSync('/tmp/opencode-thinking-fix-pack.json','utf8'))[0]; const files=pack.files.map(f=>f.path); const forbidden=files.filter(f=>/(^|\/)(tests|docs|node_modules|\.serena)(\/|$)|(^|\/)(AGENTS|CHANGELOG)\.md$/.test(f)); if(forbidden.length){console.error('Forbidden package files:',forbidden); process.exit(1)} if(!files.includes('proxy/core.js')){console.error('proxy/core.js missing from package'); process.exit(1)}"
+      - name: Run proxy test suite
+        run: node tests/test-proxy.js
+      - name: Run plugin test suite
+        run: node tests/test-plugin.js
 
   publish-npm:
     needs: validate

@@ -5,6 +5,7 @@ import crypto from 'node:crypto'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { appendFileSync, mkdirSync } from 'node:fs'
+import { StringDecoder } from 'node:string_decoder'
 
 export function deriveSessionId(modelName, parsedBody, authHeader) {
   const messages = parsedBody?.messages
@@ -38,12 +39,14 @@ export function writeLog(entry) {
 const DEBUG = process.env.DEBUG === '1'
 
 export const ROUTES = {
-  // R1 aliases: reasoning must not be echoed.
-  'deepseek-r1': { base: 'https://api.deepseek.com', reasoningKey: null },
+  // R1 aliases: reasoning must not be echoed back — the 'strip' sentinel
+  // admits the request to patchRequestBody (to REMOVE any reasoning fields a
+  // client/plugin attached) while excluding it from response-side caching.
+  'deepseek-r1': { base: 'https://api.deepseek.com', reasoningKey: 'strip' },
   'deepseek-v4-pro': { base: 'https://api.deepseek.com', reasoningKey: 'reasoning_content' },
   'deepseek-v4-flash': { base: 'https://api.deepseek.com', reasoningKey: 'reasoning_content' },
   'deepseek-chat': { base: 'https://api.deepseek.com', reasoningKey: 'reasoning_content' },
-  'deepseek-reasoner': { base: 'https://api.deepseek.com', reasoningKey: null },
+  'deepseek-reasoner': { base: 'https://api.deepseek.com', reasoningKey: 'strip' },
   deepseek: { base: 'https://api.deepseek.com', reasoningKey: 'reasoning_content' },
   kimi: { base: 'https://api.moonshot.ai/v1', reasoningKey: 'reasoning_content' },
   moonshot: { base: 'https://api.moonshot.ai/v1', reasoningKey: 'reasoning_content' },
@@ -76,9 +79,17 @@ export function route(modelName) {
 const ANTHROPIC_WIRE_PREFIXES = ['minimax', 'qwen']
 
 export function fixedUpstreamRoute(modelName, requestUrl = '') {
-  const stripped = (modelName || '').toLowerCase().replace(/^opencode-go\//, '')
+  const stripped = (modelName || '').toLowerCase().replace(/^opencode-go(?:-(?:messages|responses))?\//, '')
   if (String(requestUrl).includes('/messages') && ANTHROPIC_WIRE_PREFIXES.some((p) => stripped.startsWith(p))) {
     return { base: '', reasoningKey: 'anthropic' }
+  }
+  // F11 (validated 2026-08-19): the opencode-go gateway rejects the `reasoning`
+  // field on glm-5.2 chat/completions echo (400 "Extra inputs are not
+  // permitted") but accepts `reasoning_content`. glm-5.2 was live-validated
+  // two-turn; other Go models were NOT changed by F11 and keep the existing
+  // `reasoning` behavior below (no exhaustive per-model validation claimed).
+  if (stripped === 'glm-5.2' && String(requestUrl).includes('/chat/completions')) {
+    return { base: '', reasoningKey: 'reasoning_content' }
   }
   // Unconditional 'reasoning' for go mode: matches current working behavior
   // for chat/completions models; /responses bodies have no `messages` array
@@ -113,11 +124,28 @@ const MAX_TURNS_PER_SESSION = Number.isFinite(parsedMaxTurns) && parsedMaxTurns 
 const parsedMaxReasoning = parseInt(process.env.MAX_REASONING_CHARS || '200000', 10)
 const MAX_REASONING_CHARS = Number.isFinite(parsedMaxReasoning) && parsedMaxReasoning > 0 ? parsedMaxReasoning : 200000
 
+// MiniMax reasoning_details replay shape.
+//
+// NOTE (F6, 2026-08-19): in our opencode-go deployment (port 3458, Anthropic
+// /v1/messages wire) every MiniMax request resolves to reasoningKey 'anthropic'
+// via fixedUpstreamRoute(), so this constant and the reasoning_details branch
+// in patchRequestBody() are UNUSED in production. Retained defensively for the
+// port-3457 universal-mode / provider-native MiniMax fallback (ROUTES.minimax).
+//
+// 'full' emits the openai-responses-v1 item { type, format, index, text };
+// 'minimal' emits { type, text }. Default 'minimal' (smallest documented
+// outbound shape).
+const MINIMAX_REASONING_DETAILS_SHAPE = process.env.MINIMAX_REASONING_DETAILS_SHAPE === 'full' ? 'full' : 'minimal'
+
 class BoundedSessionMap extends Map {
   set(key, value) {
-    super.set(key, typeof value === 'string' ? value.slice(0, MAX_REASONING_CHARS) : value)
+    // Skip-not-truncate: an oversized reasoning value is dropped entirely
+    // rather than silently truncated (a truncated replay can be worse than a
+    // cache miss). Returns true when stored, false when skipped.
+    if (typeof value === 'string' && value.length > MAX_REASONING_CHARS) return false
+    super.set(key, value)
     while (this.size > MAX_TURNS_PER_SESSION) this.delete(this.keys().next().value)
-    return this
+    return true
   }
 }
 
@@ -164,13 +192,36 @@ export function patchRequestBody(body, sessionId, reasoningKey) {
         if (missingReasoning) { stats.misses++; report.misses++ }
       }
     } else if (reasoningKey === 'reasoning_details') {
+      // F6 (defensive): provider-native MiniMax on port 3457 universal mode
+      // replays reasoning into `reasoning_details`. Never executed in the
+      // opencode-go deployment (MiniMax always routes as 'anthropic' there) —
+      // retained for the universal-mode / provider-native fallback.
       const hasDetails = Array.isArray(msg.reasoning_details) ? msg.reasoning_details.length > 0 : !!msg.reasoning_details
       missingReasoning = !hasDetails && !msg.reasoning_content
       if (missingReasoning) report.missingReasoning++
       if (!hasDetails && !msg.reasoning_content && cached) {
-        msg.reasoning_details = [{ text: cached, type: 'thinking' }]; stats.hits++; report.hits++; report.turns.push({ index: assistantIndex, fields: ['reasoning_details'], source: 'hit' }); modified = true
+        msg.reasoning_details = MINIMAX_REASONING_DETAILS_SHAPE === 'full'
+          ? [{ type: 'reasoning.text', format: 'openai-responses-v1', index: assistantIndex, text: cached }]
+          : [{ type: 'reasoning.text', text: cached }]
+        stats.hits++; report.hits++; report.turns.push({ index: assistantIndex, fields: ['reasoning_details'], source: 'hit' }); modified = true
       } else if (missingReasoning) {
         stats.misses++; report.misses++
+      }
+    } else if (reasoningKey === 'strip') {
+      // R1 sentinel: deepseek-r1 / deepseek-reasoner 400 when reasoning is
+      // echoed back. Actively remove any reasoning field a client/plugin may
+      // have attached rather than replay it.
+      const stripped = []
+      if (msg.reasoning_content !== undefined) { delete msg.reasoning_content; stripped.push('reasoning_content') }
+      if (msg.reasoning !== undefined) { delete msg.reasoning; stripped.push('reasoning') }
+      if (msg.reasoning_details !== undefined) { delete msg.reasoning_details; stripped.push('reasoning_details') }
+      if (Array.isArray(msg.content)) {
+        const kept = msg.content.filter((b) => !(b && (b.type === 'thinking' || b.type === 'redacted_thinking')))
+        if (kept.length !== msg.content.length) { msg.content = kept; stripped.push('content') }
+      }
+      if (stripped.length > 0) {
+        modified = true
+        report.turns.push({ index: assistantIndex, fields: stripped, source: 'strip' })
       }
     } else if (!msg[reasoningKey] || msg[reasoningKey] === '') {
       missingReasoning = true
@@ -192,7 +243,10 @@ export function extractReasoningFromJson(text) {
     // Anthropic buffered format: content[] with thinking blocks.
     if (Array.isArray(parsed?.content)) {
       const thinking = parsed.content
-        .filter((b) => b && b.type === 'thinking' && typeof b.thinking === 'string')
+        // Explicit redacted_thinking guard (redundant with the
+        // b.type === 'thinking' equality below, but kept for contract
+        // clarity: redacted blocks must never be replayed as reasoning).
+        .filter((b) => b && b.type === 'thinking' && b.type !== 'redacted_thinking' && typeof b.thinking === 'string')
         .map((b) => b.thinking)
         .join('\n')
       if (thinking) return thinking
@@ -213,6 +267,9 @@ export function extractReasoningFromJson(text) {
 
 export function createStreamParser(sessionId, baseIndex, onComplete) {
   let reasoningBuffer = ''
+  // StringDecoder buffers partial multibyte UTF-8 sequences across feed()
+  // calls, so a character split between two chunks is not corrupted.
+  const decoder = new StringDecoder('utf8')
   const parser = createParser({
     maxBufferSize: 1024 * 1024,
     onEvent(event) {
@@ -249,7 +306,11 @@ export function createStreamParser(sessionId, baseIndex, onComplete) {
     onError(error) { if (DEBUG) console.error(`[Proxy] SSE parse error (${sessionId.slice(-8)}):`, error.message) },
   })
   return {
-    feed(chunk) { parser.feed(chunk.toString('utf8')) },
-    flush() { if (reasoningBuffer) { onComplete(baseIndex, reasoningBuffer); reasoningBuffer = '' } },
+    feed(chunk) { parser.feed(decoder.write(chunk)) },
+    flush() {
+      const tail = decoder.end()
+      if (tail) parser.feed(tail)
+      if (reasoningBuffer) { onComplete(baseIndex, reasoningBuffer); reasoningBuffer = '' }
+    },
   }
 }

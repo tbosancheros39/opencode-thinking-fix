@@ -10,7 +10,7 @@
 npm install opencode-thinking-fix
 ```
 
-> Fix for reasoning being dropped from multi-turn conversations with DeepSeek, Kimi, GLM, MiMo, and MiniMax-M3.
+> Restores reasoning content that clients and SDKs drop from multi-turn conversations — DeepSeek, Kimi, GLM, MiMo, MiniMax, and OpenCode Go.
 >
 > **Zero config.** Install via `Ctrl+P`, restart OpenCode, done. The plugin auto-detects reasoning models and only patches when needed.
 >
@@ -72,7 +72,8 @@ causing cross-provider poisoning. v3.1 fixes that:
   filled all three fields, so a GLM turn stored under `reasoning` could poison a later
   DeepSeek replay that expects `reasoning_content`.
 - **R1 vs V4 split.** `deepseek-reasoner` (R1) must **not** receive reasoning echoed back
-  (400 if you do) while V4 must. R1 now routes with `reasoningKey: null`.
+  (400 if you do) while V4 must. R1 uses the v3.2 `reasoningKey: 'strip'` sentinel,
+  which actively removes reasoning fields before forwarding.
 - **Never fabricate reasoning.** Unknown models and providers that reject echo
   (Qwen, GPT, Claude, Gemini, Llama, Mistral, Cerebras-hosted GLM) default to
   `reasoningKey: null` — the body is forwarded untouched.
@@ -89,9 +90,9 @@ The reasoning-drop is fixed at the wire layer by the proxy, so you have three op
 
 **Recommendation:** run the proxy, and slim the plugin down to *just* the `x-session-id` header injection (delete its message-transform hook). That gives you real reasoning replay with the least overhead.
 
-## Plugin deprecation and derived sessions
+## Plugin optionality and derived sessions
 
-As of 3.0, plugin is deprecated. Proxy derives session identity from request when `x-session-id` is absent. Formula: `sha256(authHeader || '' || modelName || firstUserMessageText)`, prefixed with `derived:` and truncated to 32 hex characters; header wins when present. Rare bounded collision: conversations sharing same first user message, model, and auth key share cache key, causing minor reasoning cross-talk that self-heals as turns diverge.
+As of 3.2.0, the plugin is optional. The shipped npm plugin still contains the transform hook; without it, derived keys keep caching functional; with it, you add exact session IDs + schema padding. The proxy derives session identity from the request when `x-session-id` is absent. Formula: `sha256(authHeader + '||' + modelName + '||' + firstUserMessageText)`, prefixed with `derived:` and truncated to 32 hex characters; header wins when present. The key is fixed at the first user message, so cross-talk is bounded to sessions sharing the same auth header, model, and first user prompt; replayed text is still valid reasoning for that model, so the impact is quality-level, never a 400.
 
 ---
 
@@ -124,7 +125,7 @@ opencode plugin opencode-thinking-fix
 For a specific version:
 
 ```bash
-opencode plugin opencode-thinking-fix@3.1.4
+opencode plugin opencode-thinking-fix@3.2.0
 ```
 
 Restart OpenCode after installing.
@@ -359,7 +360,7 @@ The proxy auto-routes by model name prefix. All routes:
 | Prefix | Upstream | Reasoning |
 |---|---|---|
 | `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-chat` | `https://api.deepseek.com` | Yes (`reasoning_content`) |
-| `deepseek-reasoner` | `https://api.deepseek.com` | **No — must NOT echo** (R1 contract) |
+| `deepseek-reasoner` | `https://api.deepseek.com` | **No — actively stripped** (R1 contract: reasoning must NOT be echoed) |
 | `kimi`, `moonshot` | `https://api.moonshot.ai/v1` | Yes (`reasoning_content`) |
 | `glm`, `zhipu` | `https://open.bigmodel.cn/api/paas/v4` | Yes (`reasoning_content`) |
 | `minimax` | `https://api.minimax.io/v1` | Yes (`reasoning_details`, `reasoning_split:true`) |
@@ -443,12 +444,12 @@ OpenCode is not the only tool that drops `reasoning_content`. Here is a partial 
 
 ```
 plugins/
-  opencode-thinking-fix-universal.ts   # self-detection plugin (92 lines)
+  opencode-thinking-fix-universal.ts   # self-detection plugin
 proxy/
-  core.js                               # pure logic: routes, cache, patching, parser (138 lines)
-  proxy.js                              # HTTP server + side effects (266 lines, 1 dep)
+  core.js                               # pure logic: routes, cache, patching, parser
+  proxy.js                              # HTTP server + side effects (1 dep)
 watchdog/
-  watchdog.sh                           # auto-recovery watchdog (64 lines)
+  watchdog.sh                           # auto-recovery watchdog
 systemd/
   reasoning-cache.service               # proxy systemd unit (port 3457)
   reasoning-cache-go.service            # OpenCode Go proxy unit (port 3458)
@@ -457,6 +458,7 @@ systemd/
 
 ## Release highlights
 
+- **v3.2.0:** R1 `strip` sentinel (actively remove reasoning for `deepseek-r1`/`deepseek-reasoner`), multibyte-safe SSE decoding (StringDecoder), response hop-by-hop header stripping, oversized-reasoning skip-not-truncate, MiniMax replay shape behind `MINIMAX_REASONING_DETAILS_SHAPE` (default `minimal`), a real-core test suite (95 assertions), glm-5.2 go-mode `reasoning_content` key (F11, live-verified), derived session keys (Option C), and `x-session-id` no longer forwarded upstream. See the changelog.
 - **v3.1.4:** proxy-owned structured JSONL logging with session identifiers truncated in logs.
 - **v3.1.3:** Anthropic-wire dialect detection for OpenCode Go routes.
 - **v3.1.2:** bounded cache/session memory, raw-stream preservation, hop-by-hop header removal, and safer parser failure handling.

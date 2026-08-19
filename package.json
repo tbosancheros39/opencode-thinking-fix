@@ -1,7 +1,7 @@
 {
   "name": "opencode-thinking-fix",
-  "version": "3.1.4",
-  "description": "Fix reasoning_content 400 errors for DeepSeek/Kimi/GLM/MiMo/MiniMax in OpenCode",
+  "version": "3.2.0",
+  "description": "Restores reasoning content dropped from multi-turn OpenCode conversations (DeepSeek, Kimi, GLM, MiMo, MiniMax, OpenCode Go). Plugin + proxy + watchdog.",
   "type": "module",
   "license": "MIT",
   "oc-plugin": [
@@ -26,10 +26,9 @@
     "thinking-mode",
     "tool-calls",
     "multi-turn",
-    "400-error",
-    "http-400",
     "proxy",
     "plugin",
+    "cli",
     "cursor",
     "cline",
     "aider",
@@ -44,7 +43,9 @@
     "chinese-llm",
     "agent",
     "mcp",
-    "api-fix"
+    "reasoning-preservation",
+    "thinking-blocks",
+    "context-restoration"
   ],
   "repository": {
     "type": "git",
