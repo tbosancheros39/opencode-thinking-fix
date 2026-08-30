@@ -2,6 +2,10 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## 3.3.3 - 2026-08-30
+
+- README reframed the plugin's role honestly: the hard 400 is mostly resolved on modern gateways but still happens once in a while (native DeepSeek tool-call turns, present-required models like Kimi K2.7 Code, proxy downtime), so the plugin stays as cheap insurance while the proxy remains the actual fix. Also documents that native DeepSeek treats present-but-empty as missing on tool-call turns.
+
 ## 3.3.2 - 2026-08-30
 
 - Package metadata and README updated for existing users: OpenRouter is now listed in the description and keywords, and the README carries an update note telling pre-3.3 installs to update for OpenRouter and OpenCode Zen free-tier coverage.

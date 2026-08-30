@@ -90,7 +90,7 @@ What this repo does about it:
 - **The proxy** is a smarter middle-man that sits between OpenCode and the teacher. It **reads the real sticky note off each answer, remembers it, and pastes the actual writing back** into the next message. Now the teacher remembers, and your friend stays sharp. (v3 rewrote the proxy so it does this with almost zero slowdown — see below.)
 - **The watchdog** is just a babysitter that restarts the proxy if it ever crashes.
 
-Bottom line: **the proxy is what makes the AI actually remember its thinking. The plugin is a safety net. The watchdog keeps the lights on.**
+Bottom line: the proxy is what makes the AI actually remember its thinking. The plugin is a seatbelt for the rare hard 400 that still slips through. The watchdog keeps the lights on.
 
 ---
 
@@ -199,7 +199,7 @@ See also: [OpenCode plugin docs](https://opencode.ai/docs/plugins)
 - [Why you've probably never seen it](#why-youve-probably-never-seen-it)
 - [The evidence](#the-evidence)
 - [For the skeptics](#for-the-skeptics)
-- [Option 1: Plugin (safety net)](#option-1-plugin-safety-net)
+- [Option 1: Plugin (partial safety net)](#option-1-plugin-partial-safety-net)
 - [Option 2: Proxy (replays real reasoning)](#option-2-proxy-replays-real-reasoning)
 - [Option 3: Watchdog (auto-recovery)](#option-3-watchdog-auto-recovery)
 - [How they work together](#how-they-work-together)
@@ -232,7 +232,7 @@ systemic, not a single tool's bug. This repo fixes it. Three layers, pick what y
 
 ---
 
-## Option 1: plugin (safety net)
+## Option 1: plugin (partial safety net)
 
 ### Install via npm (recommended)
 
@@ -253,7 +253,9 @@ It also handles `reasoning` for the OpenCode Go provider, and patches empty `con
 
 No config file changes. No build step. OpenCode compiles `.ts` plugins when it starts.
 
-**The catch:** the plugin fills in empty strings, not your model's actual prior thinking. DeepSeek, Kimi K2.5/K2.6, GLM, and MiMo accept empty strings fine, your conversation works but the model does not see its earlier reasoning. Kimi K2.7 Code requires the field to be present; present-but-empty is accepted.
+**Why keep it when the 400 is mostly resolved?** The hard 400 no longer fires on most gateways, but it still happens once in a while: on native DeepSeek tool-call turns, on present-required models like Kimi K2.7 Code, and whenever the proxy is down mid-session. Keeping the field present costs nothing and removes that failure class entirely, so it stays as insurance rather than the main fix.
+
+**The catch:** the plugin fills in empty strings, not your model's actual prior thinking. DeepSeek, Kimi K2.5/K2.6, GLM, and MiMo accept empty strings fine, your conversation works but the model does not see its earlier reasoning. Kimi K2.7 Code requires the field to be present; present-but-empty is accepted. On native DeepSeek tool-call turns even a present-but-empty field is treated as missing, so the proxy's real cached text is what satisfies that contract.
 
 ---
 
@@ -382,7 +384,7 @@ OpenCode → [plugin patches missing reasoning_content/reasoning]
          → API
 ```
 
-The plugin is the safety net. If the proxy goes down, the plugin still injects empty strings so reasoning is never missing from the request. If the proxy is up, its cached text takes priority because the plugin sees the field is already filled in. Either way, your conversation keeps its thinking.
+The plugin is partial insurance. The hard 400 is mostly gone from modern gateways, but it still fires once in a while — native DeepSeek tool-call turns, present-required models, or a proxy that is down mid-session. When that happens the plugin keeps the field present so the request survives; on empty-tolerant gateways the empty string is accepted, and on stricter ones the proxy's real cached text takes over because the plugin sees the field is already filled in. The proxy is the actual fix. The plugin is the seatbelt you hope never to need.
 
 ---
 
