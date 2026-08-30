@@ -146,6 +146,10 @@ As of 3.2.0, the plugin is optional. The shipped npm plugin still contains the t
 | **CLI** | `opencode plugin opencode-thinking-fix` | Scripting |
 | **Manual** | Add `"plugin": ["opencode-thinking-fix"]` to `opencode.json` | Version pinning |
 
+### Already installed? Update
+
+Versions before 3.3 do not cover OpenRouter or the OpenCode Zen free-tier lane. Update inside OpenCode (`Ctrl+P` → install plugin → `opencode-thinking-fix`) or with `opencode plugin opencode-thinking-fix`, then restart. The plugin self-detects reasoning models, so updating is safe on non-reasoning setups too.
+
 ### Method 1: TUI (press `Ctrl+P` while OpenCode is running)
 
 1. Press `Ctrl+P` to open the command palette.

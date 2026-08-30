@@ -2,6 +2,10 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## 3.3.2 - 2026-08-30
+
+- Package metadata and README updated for existing users: OpenRouter is now listed in the description and keywords, and the README carries an update note telling pre-3.3 installs to update for OpenRouter and OpenCode Zen free-tier coverage.
+
 ## 3.3.1 - 2026-08-30
 
 - Model names corrected to the current DeepSeek catalog: `deepseek-v4-flash`, `deepseek-v4-pro`, and the experimental `deepseek-v4-flash-vision-exp` are the active ids. `deepseek-chat` / `deepseek-reasoner` are marked as aliases DeepSeek retired on 2026-07-24, and the `strip` route is reframed as a compatibility guard rather than the current contract. Docs-only change; routing behavior is unchanged.
