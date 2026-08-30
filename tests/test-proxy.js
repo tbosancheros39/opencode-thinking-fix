@@ -22,6 +22,7 @@ import {
   patchRequestBody,
   extractReasoningFromJson,
   createStreamParser,
+  upstreamPathFor,
 } from '../proxy/core.js'
 
 // ── Test harness ────────────────────────────────────────────────────────────
@@ -78,6 +79,42 @@ eq(route('gemini-2.5').reasoningKey, null, 'R15. gemini -> null')
 eq(route('unknown-model'), DEFAULT_ROUTE, 'R16. unknown -> DEFAULT_ROUTE')
 eq(route('unknown-model').reasoningKey, null, 'R17. unknown -> reasoningKey null')
 eq(route('').reasoningKey, null, 'R18. empty model -> DEFAULT_ROUTE (null)')
+
+// opencode/ zen free-tier pins: zen/v1 upstream, reasoning_content carrier.
+eq(route('opencode/deepseek-v4-flash-free').base, 'https://opencode.ai/zen/v1', 'R19. opencode/deepseek-v4-flash-free -> zen/v1')
+eq(route('opencode/deepseek-v4-flash-free').reasoningKey, 'reasoning_content', 'R19b. opencode/deepseek-v4-flash-free -> reasoning_content')
+eq(route('opencode/hy3-free').base, 'https://opencode.ai/zen/v1', 'R20. opencode/hy3-free -> zen/v1')
+eq(route('opencode/hy3-free').reasoningKey, 'reasoning_content', 'R20b. opencode/hy3-free -> reasoning_content')
+eq(route('opencode/mimo-v2.5-free').base, 'https://opencode.ai/zen/v1', 'R21. opencode/mimo-v2.5-free -> zen/v1')
+eq(route('opencode/mimo-v2.5-free').reasoningKey, 'reasoning_content', 'R21b. opencode/mimo-v2.5-free -> reasoning_content')
+eq(route('opencode/muse-spark-1.2-contributor-free').base, 'https://opencode.ai/zen/v1', 'R22. opencode/muse-spark-1.2-contributor-free -> zen/v1')
+eq(route('opencode/muse-spark-1.2-contributor-free').reasoningKey, 'reasoning_content', 'R22b. opencode/muse-spark-1.2-contributor-free -> reasoning_content')
+eq(route('opencode/nemotron-3-ultra-free').base, 'https://opencode.ai/zen/v1', 'R23. opencode/nemotron-3-ultra-free -> zen/v1')
+eq(route('opencode/nemotron-3-ultra-free').reasoningKey, 'reasoning_content', 'R23b. opencode/nemotron-3-ultra-free -> reasoning_content')
+eq(route('opencode/nemotron-3.5-lightning-free').base, 'https://opencode.ai/zen/v1', 'R24. opencode/nemotron-3.5-lightning-free -> zen/v1')
+eq(route('opencode/nemotron-3.5-lightning-free').reasoningKey, 'reasoning_content', 'R24b. opencode/nemotron-3.5-lightning-free -> reasoning_content')
+
+// Paid opencode/* models must NOT match the -free entries (no catch-all).
+eq(route('opencode/gpt-5.5'), DEFAULT_ROUTE, 'R25. opencode/gpt-5.5 -> DEFAULT_ROUTE (paid, no -free entry)')
+eq(route('opencode/gpt-5.5').reasoningKey, null, 'R25b. opencode/gpt-5.5 -> reasoningKey null')
+
+// Bare zen free-tier ids (no `opencode/` prefix) — R26..R31 (2026-08-30)
+for (const bare of ['ling-3.0-flash-fin-free', 'laguna-s-2.1-free', 'big-pickle', 'ox-alpha-free', 'nemotron-3-ultra-free', 'nemotron-3.5-lightning-free']) {
+  eq(route(bare).base, 'https://opencode.ai/zen/v1', `R26. bare ${bare} -> zen/v1`)
+  eq(route(bare).reasoningKey, 'reasoning_content', `R26b. bare ${bare} -> reasoning_content`)
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// upstreamPathFor() — F13 prefix dedup (OpenRouter /api/v1 vs /v1)
+// ═════════════════════════════════════════════════════════════════════════
+console.log('\n=== upstreamPathFor() tests ===\n')
+
+eq(upstreamPathFor('/v1/chat/completions', '/api/v1'), '/api/v1/chat/completions', 'P1. /v1 path + /api/v1 base -> prefixed once')
+eq(upstreamPathFor('/api/v1/chat/completions', '/api/v1'), '/api/v1/chat/completions', 'P2. client already sent official prefix -> unchanged')
+eq(upstreamPathFor('/api/v1/chat/completions', '/'), '/api/v1/chat/completions', 'P3. root base -> unchanged')
+eq(upstreamPathFor('/v1/chat/completions', '/v1'), '/v1/chat/completions', 'P4. /v1 base -> unchanged')
+eq(upstreamPathFor('/v1/chat/completions', undefined), '/v1/chat/completions', 'P5. undefined base -> unchanged')
+eq(upstreamPathFor('/api/v1/models', '/api/v1'), '/api/v1/models', 'P6. official-prefix subpath -> unchanged')
 
 // ═════════════════════════════════════════════════════════════════════════
 // fixedUpstreamRoute() — OpenCode Go (port 3458) dialect selection

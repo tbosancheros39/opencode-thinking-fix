@@ -1,0 +1,32 @@
+# opencode/laguna-s-2.1-free — direct to https://opencode.ai/zen/v1/chat/completions (no proxy)
+# auth: Authorization: Bearer <REDACTED> (from ~/.local/share/opencode/auth.json "opencode" key)
+
+--- TURN 1 REQUEST ---
+POST https://opencode.ai/zen/v1/chat/completions
+body: {"model":"laguna-s-2.1-free","messages":[{"role":"user","content":"List files in the repo."}],"tools":[{"type":"function","function":{"name":"list_files","description":"List files in the repo","parameters":{"type":"object","properties":{}}}}],"stream":false}
+HTTP 200
+turn-1 reasoning field: none (0 chars)
+turn-1 reasoning excerpt: 
+turn-1 tool_calls: [{"index":0,"id":"chatcmpl-tool-c2806dba6eca4359b542eb4ef77b6256","type":"function","function":{"name":"list_files","arguments":"{}"}}]
+turn-1 full response (first 600): {"id":"gen-1787169372-Y3jTHEqcDntGmNw2WWsj","object":"chat.completion","created":1787169372,"model":"laguna-s-2.1-free","choices":[{"index":0,"finish_reason":"tool_calls","logprobs":null,"message":{"role":"assistant","content":null,"refusal":null,"reasoning":null,"tool_calls":[{"index":0,"id":"chatcmpl-tool-c2806dba6eca4359b542eb4ef77b6256","type":"function","function":{"name":"list_files","arguments":"{}"}}]}}],"usage":{"prompt_tokens":123,"completion_tokens":5,"total_tokens":128,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":64,"cache_write_tokens":0},"completion_tokens_details":{
+
+--- TURN 2 REQUEST (drop) ---
+body: {"model":"laguna-s-2.1-free","messages":[{"role":"user","content":"List files in the repo."},{"role":"assistant","content":"","tool_calls":[{"index":0,"id":"chatcmpl-tool-c2806dba6eca4359b542eb4ef77b6256","type":"function","function":{"name":"list_files","arguments":"{}"}}]},{"role":"tool","tool_call_id":"chatcmpl-tool-c2806dba6eca4359b542eb4ef77b6256","content":"[\"src/\", \"tests/\"]"},{"role":"user","content":"Now read src/main.ts."}],"tools":[{"type":"function","function":{"name":"read_file","description":"Read a file from the repo","parameters":{"type":"object","properties":{"file":{"type":"string"}},"required":["file"]}}}],"stream":false}
+HTTP 503
+turn-2 response body (first 500): {"error":{"type":"server_error","message":"Error from provider (Console): Upstream request failed: Endpoint is unavailable."}}
+
+
+# === RETRY RUN 2026-08-19T20:19:00.744Z ===
+
+--- TURN 1 REQUEST (retry) ---
+body: {"model":"laguna-s-2.1-free","messages":[{"role":"user","content":"List files in the repo."}],"tools":[{"type":"function","function":{"name":"list_files","description":"List files in the repo","parameters":{"type":"object","properties":{}}}}],"stream":false}
+HTTP 200
+turn-1 reasoning field: none (0 chars)
+turn-1 reasoning excerpt: 
+turn-1 tool_calls: [{"index":0,"id":"chatcmpl-tool-cb9f8ccc92324d1fb74f28b4a2932f57","type":"function","function":{"name":"list_files","arguments":"{}"}}]
+turn-1 full response (first 600): {"id":"gen-1787170740-lRLDuiqkDFpyirAxkuia","object":"chat.completion","created":1787170740,"model":"laguna-s-2.1-free","choices":[{"index":0,"finish_reason":"tool_calls","logprobs":null,"message":{"role":"assistant","content":null,"refusal":null,"reasoning":null,"tool_calls":[{"index":0,"id":"chatcmpl-tool-cb9f8ccc92324d1fb74f28b4a2932f57","type":"function","function":{"name":"list_files","arguments":"{}"}}]}}],"usage":{"prompt_tokens":123,"completion_tokens":5,"total_tokens":128,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":64,"cache_write_tokens":0},"completion_tokens_details":{
+
+--- TURN 2 REQUEST (drop, retry) ---
+body: {"model":"laguna-s-2.1-free","messages":[{"role":"user","content":"List files in the repo."},{"role":"assistant","content":"","tool_calls":[{"index":0,"id":"chatcmpl-tool-cb9f8ccc92324d1fb74f28b4a2932f57","type":"function","function":{"name":"list_files","arguments":"{}"}}]},{"role":"tool","tool_call_id":"chatcmpl-tool-cb9f8ccc92324d1fb74f28b4a2932f57","content":"[\"src/\", \"tests/\"]"},{"role":"user","content":"Now read src/main.ts."}],"tools":[{"type":"function","function":{"name":"read_file","description":"Read a file from the repo","parameters":{"type":"object","properties":{"file":{"type":"string"}},"required":["file"]}}}],"stream":false}
+HTTP 200
+turn-2 response body (first 500): {"id":"gen-1787170745-imFcOj6liAawWG2Wi2vJ","object":"chat.completion","created":1787170745,"model":"laguna-s-2.1-free","choices":[{"index":0,"finish_reason":"tool_calls","logprobs":null,"message":{"role":"assistant","content":null,"refusal":null,"reasoning":null,"tool_calls":[{"index":0,"id":"chatcmpl-tool-d8a61d08480b4c3f951e98727d5303a8","type":"function","function":{"name":"read_file","arguments":"{\"file\": \"src/main.ts\"}"}}]}}],"usage":{"prompt_tokens":175,"completion_tokens":24,"total_t

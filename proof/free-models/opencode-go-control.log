@@ -1,0 +1,25 @@
+# opencode-go CONTROL — SEPARATE MODEL SET (distinct from opencode/ free models)
+# Model: opencode-go/deepseek-v4-flash (wire id: deepseek-v4-flash)
+# Path: temp proxy on :3499 -> https://opencode.ai/zen/go/v1 (repo proxy/core.js + proxy.js v3.2.0)
+# Session: 2-turn tool-call, x-session-id header, streaming (SSE)
+# Auth: Authorization: Bearer <REDACTED> (auth.json "opencode-go" key, same as "opencode" key)
+# Redacted: no keys, no personal paths.
+
+# Turn 1: model emits reasoning (76 chars) -> proxy caches it:
+{"event":"cache_store","session":"mt0jg1en","turn":0,"chars":76}
+
+# Turn 2: client echoes turn-1 assistant message WITHOUT reasoning (the drop) ->
+# proxy inspects the request, sees the missing field, and injects the cached text:
+{"event":"inspect","model":"deepseek-v4-flash","session":"mt0jg1en","endpoint":"/v1/chat/completions","totalMessages":4,"assistantTurns":1,"missingText":1,"missingReasoning":1}
+{"event":"patched","model":"deepseek-v4-flash","session":"mt0jg1en","patchedFields":1,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"}]}
+
+# Result: gateway accepted the replayed reasoning -> HTTP 200 (no 400).
+# Turn 2's own reasoning also cached for turn 3:
+{"event":"cache_store","session":"mt0jg1en","turn":1,"chars":54}
+
+# Raw JSONL (verbatim, redacted):
+# {"ts":"2026-08-19T20:21:30.582Z","event":"proxy_started","port":3499,"version":"3.2.0","upstream":"https://opencode.ai/zen/go/v1","pid":2159050}
+# {"ts":"2026-08-19T20:22:40.964Z","event":"cache_store","session":"mt0jg1en","turn":0,"chars":76}
+# {"ts":"2026-08-19T20:22:41.007Z","event":"inspect","model":"deepseek-v4-flash","session":"mt0jg1en","endpoint":"/v1/chat/completions","totalMessages":4,"assistantTurns":1,"missingText":1,"missingReasoning":1}
+# {"ts":"2026-08-19T20:22:41.007Z","event":"patched","model":"deepseek-v4-flash","session":"mt0jg1en","patchedFields":1,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"}]}
+# {"ts":"2026-08-19T20:22:42.440Z","event":"cache_store","session":"mt0jg1en","turn":1,"chars":54}

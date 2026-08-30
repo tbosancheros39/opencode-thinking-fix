@@ -1,0 +1,86 @@
+# opencode-go PASSIVE TAP — Artifact B (authentic deployed-proxy traffic)
+# ----------------------------------------------------------------------
+# Source: the DEPLOYED proxy's JSONL log at <root-home>/.local/share/opencode/thinking-fix.log
+#   (read via sudo; 2252 lines / 870 KB; events span 2026-08-18T20:29Z .. 2026-08-19T23:06Z).
+#   This is the production proxy (ports 3457/3458) that has been running as root and
+#   passively logging every request it inspects — NOT a test harness, NOT a simulation.
+# Model set: opencode-go (deepseek-v4-flash, hy3, deepseek-v4-pro, minimax-m3, qwen3.7-max,
+#   glm-5.2, kimi-k2.6) — the proxy-covered set. Distinct from the opencode/ free set.
+# Redaction: the source log was scanned for secrets (sk- keys, passwords, personal paths)
+#   -> 0 matches. Session ids are opaque random strings and are kept verbatim.
+# ----------------------------------------------------------------------
+# WHAT THIS PROVES (the drop, in real traffic):
+#   cache_store  = the gateway EMITTED reasoning on turn N; the proxy cached it.
+#   inspect      = the client's NEXT request arrived WITHOUT the reasoning field
+#                  (missingReasoning > 0) — the client dropped it in serialization.
+#   patched      = the proxy repaired the request (source:"hit" = replayed real cached
+#                  text; source:"miss" = no cache yet, empty-string fallback).
+# ----------------------------------------------------------------------
+
+# ── Aggregate stats (whole log) ──────────────────────────────────────────────
+#   inspect events:        875   (632 = 72% have missingReasoning > 0)
+#   cache_store events:    731   (turn-1 emissions; chars min/median/max = 17/894/93543)
+#   patched events:        632   (turn sources: 7895 "miss", 1818 "hit")
+#   missingReasoning>0 by model: deepseek-v4-flash 363, hy3 132, minimax-m3 61,
+#                                deepseek-v4-pro 51, qwen3.7-max 18, glm-5.2 4, kimi-k2.6 3
+#   clean cache_store -> inspect(missingReasoning>0) -> patched(source:"hit")
+#   triples for the SAME turn: 1189
+
+# ── CLEANEST 2-TURN PROOF — session penai-ds (deepseek-v4-flash) ─────────────
+# Turn 1: gateway emits reasoning (83 chars) -> proxy caches it:
+{"ts":"2026-08-19T12:33:26.302Z","event":"cache_store","session":"penai-ds","turn":0,"chars":83}
+# Turn 2: client's request arrives WITHOUT the reasoning field (the drop):
+{"ts":"2026-08-19T12:33:26.356Z","event":"inspect","model":"deepseek-v4-flash","session":"penai-ds","endpoint":"/v1/chat/completions","totalMessages":3,"assistantTurns":1,"missingText":0,"missingReasoning":1}
+# Proxy repairs it from cache (real text, source:"hit"):
+{"ts":"2026-08-19T12:33:26.356Z","event":"patched","model":"deepseek-v4-flash","session":"penai-ds","patchedFields":1,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"}]}
+# Turn 2's own reasoning cached for turn 3:
+{"ts":"2026-08-19T12:33:27.706Z","event":"cache_store","session":"penai-ds","turn":1,"chars":77}
+
+# ── 2-TURN PROOF, glm-5.2 — session nai-chat ─────────────────────────────────
+{"ts":"2026-08-19T12:30:33.502Z","event":"cache_store","session":"nai-chat","turn":0,"chars":47}
+{"ts":"2026-08-19T12:30:47.587Z","event":"inspect","model":"glm-5.2","session":"nai-chat","endpoint":"/v1/chat/completions","totalMessages":3,"assistantTurns":1,"missingText":0,"missingReasoning":1}
+{"ts":"2026-08-19T12:30:47.587Z","event":"patched","model":"glm-5.2","session":"nai-chat","patchedFields":1,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"}]}
+
+# ── REPEATED DROP->REPAIR CYCLES — session 37dd467b (deepseek-v4-flash) ──────
+# Every turn: cache_store (emission) -> inspect (client dropped) -> patched (proxy repaired).
+{"ts":"2026-08-19T20:51:58.690Z","event":"cache_store","session":"37dd467b","turn":0,"chars":285}
+{"ts":"2026-08-19T20:51:58.782Z","event":"inspect","model":"deepseek-v4-flash","session":"37dd467b","endpoint":"/v1/chat/completions","totalMessages":4,"assistantTurns":1,"missingText":0,"missingReasoning":1}
+{"ts":"2026-08-19T20:51:58.782Z","event":"patched","model":"deepseek-v4-flash","session":"37dd467b","patchedFields":1,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"}]}
+{"ts":"2026-08-19T20:52:00.593Z","event":"cache_store","session":"37dd467b","turn":1,"chars":37}
+{"ts":"2026-08-19T20:52:00.702Z","event":"inspect","model":"deepseek-v4-flash","session":"37dd467b","endpoint":"/v1/chat/completions","totalMessages":7,"assistantTurns":2,"missingText":1,"missingReasoning":2}
+{"ts":"2026-08-19T20:52:00.702Z","event":"patched","model":"deepseek-v4-flash","session":"37dd467b","patchedFields":2,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"},{"index":1,"fields":["reasoning"],"source":"hit"}]}
+{"ts":"2026-08-19T20:53:43.381Z","event":"cache_store","session":"37dd467b","turn":0,"chars":113}
+{"ts":"2026-08-19T20:53:43.477Z","event":"inspect","model":"deepseek-v4-flash","session":"37dd467b","endpoint":"/v1/chat/completions","totalMessages":4,"assistantTurns":1,"missingText":1,"missingReasoning":1}
+{"ts":"2026-08-19T20:53:43.477Z","event":"patched","model":"deepseek-v4-flash","session":"37dd467b","patchedFields":1,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"}]}
+{"ts":"2026-08-19T20:53:45.592Z","event":"cache_store","session":"37dd467b","turn":1,"chars":24}
+{"ts":"2026-08-19T20:53:45.680Z","event":"inspect","model":"deepseek-v4-flash","session":"37dd467b","endpoint":"/v1/chat/completions","totalMessages":6,"assistantTurns":2,"missingText":2,"missingReasoning":2}
+{"ts":"2026-08-19T20:53:45.680Z","event":"patched","model":"deepseek-v4-flash","session":"37dd467b","patchedFields":2,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"},{"index":1,"fields":["reasoning"],"source":"hit"}]}
+{"ts":"2026-08-19T20:54:20.784Z","event":"cache_store","session":"37dd467b","turn":0,"chars":347}
+{"ts":"2026-08-19T20:54:20.887Z","event":"inspect","model":"deepseek-v4-flash","session":"37dd467b","endpoint":"/v1/chat/completions","totalMessages":4,"assistantTurns":1,"missingText":1,"missingReasoning":1}
+{"ts":"2026-08-19T20:54:20.887Z","event":"patched","model":"deepseek-v4-flash","session":"37dd467b","patchedFields":1,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"}]}
+{"ts":"2026-08-19T20:54:22.455Z","event":"cache_store","session":"37dd467b","turn":1,"chars":49}
+{"ts":"2026-08-19T20:54:22.564Z","event":"inspect","model":"deepseek-v4-flash","session":"37dd467b","endpoint":"/v1/chat/completions","totalMessages":6,"assistantTurns":2,"missingText":1,"missingReasoning":2}
+{"ts":"2026-08-19T20:54:22.564Z","event":"patched","model":"deepseek-v4-flash","session":"37dd467b","patchedFields":2,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"},{"index":1,"fields":["reasoning"],"source":"hit"}]}
+{"ts":"2026-08-19T21:03:11.479Z","event":"cache_store","session":"37dd467b","turn":0,"chars":537}
+{"ts":"2026-08-19T21:03:11.583Z","event":"inspect","model":"deepseek-v4-flash","session":"37dd467b","endpoint":"/v1/chat/completions","totalMessages":4,"assistantTurns":1,"missingText":0,"missingReasoning":1}
+{"ts":"2026-08-19T21:03:11.583Z","event":"patched","model":"deepseek-v4-flash","session":"37dd467b","patchedFields":1,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"}]}
+{"ts":"2026-08-19T21:03:21.875Z","event":"inspect","model":"deepseek-v4-flash","session":"37dd467b","endpoint":"/v1/chat/completions","totalMessages":6,"assistantTurns":2,"missingText":0,"missingReasoning":2}
+{"ts":"2026-08-19T21:03:21.875Z","event":"patched","model":"deepseek-v4-flash","session":"37dd467b","patchedFields":2,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"},{"index":1,"fields":["reasoning"],"source":"hit"}]}
+{"ts":"2026-08-19T21:03:23.506Z","event":"inspect","model":"deepseek-v4-flash","session":"37dd467b","endpoint":"/v1/chat/completions","totalMessages":8,"assistantTurns":3,"missingText":0,"missingReasoning":3}
+{"ts":"2026-08-19T21:03:23.506Z","event":"patched","model":"deepseek-v4-flash","session":"37dd467b","patchedFields":3,"turns":[{"index":0,"fields":["reasoning"],"source":"hit"},{"index":1,"fields":["reasoning"],"source":"hit"},{"index":2,"fields":["reasoning"],"source":"miss"}]}
+
+# ── LONG-SESSION DROP (qwen3.7-max, session XVGJB8iG) — every assistant turn missing ──
+# 24-turn session: EVERY turn's reasoning was missing on the next request (missingReasoning:24),
+# and the proxy replayed cached text for the last turn (source:"hit") while back-filling the
+# rest with empty strings (source:"miss").
+{"ts":"2026-08-18T23:12:34.155Z","event":"inspect","model":"qwen3.7-max","session":"XVGJB8iG","endpoint":"/v1/chat/completions","totalMessages":60,"assistantTurns":24,"missingText":6,"missingReasoning":24}
+{"ts":"2026-08-18T23:12:34.156Z","event":"patched","model":"qwen3.7-max","session":"XVGJB8iG","patchedFields":24,"turns":[{"index":0,"fields":["reasoning"],"source":"miss"},{"index":1,"fields":["reasoning"],"source":"miss"},{"index":2,"fields":["reasoning"],"source":"miss"},{"index":3,"fields":["reasoning"],"source":"miss"},{"index":4,"fields":["reasoning"],"source":"miss"},{"index":5,"fields":["reasoning"],"source":"miss"},{"index":6,"fields":["reasoning"],"source":"miss"},{"index":7,"fields":["reasoning"],"source":"miss"},{"index":8,"fields":["reasoning"],"source":"miss"},{"index":9,"fields":["reasoning"],"source":"miss"},{"index":10,"fields":["reasoning"],"source":"miss"},{"index":11,"fields":["reasoning"],"source":"miss"},{"index":12,"fields":["reasoning"],"source":"miss"},{"index":13,"fields":["reasoning"],"source":"miss"},{"index":14,"fields":["reasoning"],"source":"miss"},{"index":15,"fields":["reasoning"],"source":"miss"},{"index":16,"fields":["reasoning"],"source":"miss"},{"index":17,"fields":["reasoning"],"source":"miss"},{"index":18,"fields":["reasoning"],"source":"miss"},{"index":19,"fields":["reasoning"],"source":"miss"},{"index":20,"fields":["reasoning"],"source":"miss"},{"index":21,"fields":["reasoning"],"source":"miss"},{"index":22,"fields":["reasoning"],"source":"miss"},{"index":23,"fields":["reasoning"],"source":"miss"}]}
+{"ts":"2026-08-18T23:12:40.221Z","event":"cache_store","session":"XVGJB8iG","turn":24,"chars":218}
+{"ts":"2026-08-18T23:12:41.940Z","event":"inspect","model":"qwen3.7-max","session":"XVGJB8iG","endpoint":"/v1/chat/completions","totalMessages":62,"assistantTurns":25,"missingText":7,"missingReasoning":25}
+{"ts":"2026-08-18T23:12:41.941Z","event":"patched","model":"qwen3.7-max","session":"XVGJB8iG","patchedFields":25,"turns":[{"index":0,"fields":["reasoning"],"source":"miss"},{"index":1,"fields":["reasoning"],"source":"miss"},{"index":2,"fields":["reasoning"],"source":"miss"},{"index":3,"fields":["reasoning"],"source":"miss"},{"index":4,"fields":["reasoning"],"source":"miss"},{"index":5,"fields":["reasoning"],"source":"miss"},{"index":6,"fields":["reasoning"],"source":"miss"},{"index":7,"fields":["reasoning"],"source":"miss"},{"index":8,"fields":["reasoning"],"source":"miss"},{"index":9,"fields":["reasoning"],"source":"miss"},{"index":10,"fields":["reasoning"],"source":"miss"},{"index":11,"fields":["reasoning"],"source":"miss"},{"index":12,"fields":["reasoning"],"source":"miss"},{"index":13,"fields":["reasoning"],"source":"miss"},{"index":14,"fields":["reasoning"],"source":"miss"},{"index":15,"fields":["reasoning"],"source":"miss"},{"index":16,"fields":["reasoning"],"source":"miss"},{"index":17,"fields":["reasoning"],"source":"miss"},{"index":18,"fields":["reasoning"],"source":"miss"},{"index":19,"fields":["reasoning"],"source":"miss"},{"index":20,"fields":["reasoning"],"source":"miss"},{"index":21,"fields":["reasoning"],"source":"miss"},{"index":22,"fields":["reasoning"],"source":"miss"},{"index":23,"fields":["reasoning"],"source":"miss"},{"index":24,"fields":["reasoning"],"source":"hit"}]}
+
+# ── VERDICT ──────────────────────────────────────────────────────────────────
+# In REAL deployed traffic the client drops reasoning_content/reasoning on the
+# next request in 72% of inspected requests (632/875), across 7 models. The proxy
+# repairs every one of them (1818 cache-hit replays of real text + 7895 empty-string
+# back-fills). This is the authentic, non-simulated evidence of the drop.

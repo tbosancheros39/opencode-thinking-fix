@@ -1,0 +1,253 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "bailian-token-plan-personal": "<REDACTED>",
+    "deepseek": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek",
+      "options": {
+        "baseURL": "http://127.0.0.1:3457/v1",
+        "apiKey": "<REDACTED>",
+        "timeout": 300000
+      },
+      "models": {
+        "deepseek-v4-pro": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "deepseek-v4-flash": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "deepseek-chat": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          }
+        },
+        "deepseek-reasoner": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          }
+        }
+      }
+    },
+    "opencode-go": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OpenCode Go (via proxy)",
+      "options": {
+        "baseURL": "http://127.0.0.1:3458/v1",
+        "apiKey": "<REDACTED>",
+        "timeout": 300000
+      },
+      "models": {
+        "glm-5.1": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 131072,
+            "output": 8192
+          }
+        },
+        "glm-5.2": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "glm-5.3": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "kimi-k2.6": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 256000,
+            "output": 209000
+          }
+        },
+        "kimi-k2.7-code": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 256000,
+            "output": 209000
+          }
+        },
+        "kimi-k3": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 256000,
+            "output": 209000
+          }
+        },
+        "deepseek-v4-pro": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "deepseek-v4-flash": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "mimo-v2.5": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 131072,
+            "output": 8192
+          }
+        },
+        "mimo-v2.5-pro": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 131072,
+            "output": 8192
+          }
+        },
+        "hy3": {
+          "interleaved": {
+            "field": "reasoning_content"
+          },
+          "limit": {
+            "context": 131072,
+            "output": 8192
+          }
+        }
+      }
+    },
+    "opencode-go-messages": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "OpenCode Go (Anthropic wire, via proxy)",
+      "options": {
+        "baseURL": "http://127.0.0.1:3458/v1",
+        "apiKey": "<REDACTED>",
+        "timeout": 300000
+      },
+      "models": {
+        "minimax-m3": {
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "minimax-m2.7": {
+          "limit": {
+            "context": 131072,
+            "output": 8192
+          }
+        },
+        "minimax-m2.5": {
+          "limit": {
+            "context": 131072,
+            "output": 8192
+          }
+        },
+        "qwen3.6-plus": {
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "qwen3.7-plus": {
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "qwen3.7-max": {
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "qwen3.8-max": {
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        }
+      }
+    },
+    "opencode-go-responses": {
+      "npm": "@ai-sdk/openai",
+      "name": "OpenCode Go (Responses, via proxy)",
+      "options": {
+        "baseURL": "http://127.0.0.1:3458/v1",
+        "apiKey": "<REDACTED>",
+        "timeout": 300000
+      },
+      "models": {
+        "grok-4.5": {
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "gpt-5.6-luna": {
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        },
+        "muse-spark-1.2-contributor": {
+          "limit": {
+            "context": 1048576,
+            "output": 270000
+          }
+        }
+      }
+    }
+  },
+  "plugin": [
+    "@cortexkit/opencode-magic-context@0.38.0",
+    "opencode-thinking-fix"
+  ],
+  "compaction": {
+    "auto": false,
+    "prune": false
+  }
+}

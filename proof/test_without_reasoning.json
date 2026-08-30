@@ -1,0 +1,15 @@
+{
+  "model": "deepseek-v4-flash",
+  "messages": [
+    { "role": "user", "content": "List files in the repo" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "call_1", "type": "function", "function": { "name": "list_files", "arguments": "{}" } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "call_1", "content": "[\"src/\", \"tests/\"]" },
+    { "role": "user", "content": "Now read src/main.ts" }
+  ]
+}

@@ -58,7 +58,7 @@ import https from 'node:https'
 import url   from 'node:url'
 import {
   ROUTES, cache, stats, route, fixedUpstreamRoute, getSessionCache, patchRequestBody,
-  extractReasoningFromJson, createStreamParser, writeLog, deriveSessionId,
+  extractReasoningFromJson, createStreamParser, writeLog, deriveSessionId, upstreamPathFor,
 } from './core.js'
 
 const PORT            = parseInt(process.env.PORT || '3457', 10)
@@ -170,11 +170,9 @@ const server = http.createServer((req, res) => {
     }
 
     // ── Upstream request options ──
-    let upstreamPath = req.url
-    const basePath = upstream.path || '/'
-    if (basePath !== '/' && basePath !== '/v1') {
-      upstreamPath = basePath + req.url.replace(/^\/v1/, '')
-    }
+    // F13: path normalization lives in core.js (upstreamPathFor) — never double
+    // the upstream's official prefix.
+    const upstreamPath = upstreamPathFor(req.url, upstream.path || '/')
     const transport = upstream.protocol === 'https:' ? https : http
     const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-', 'x-session-id'])
     const safeHeaders = {}

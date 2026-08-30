@@ -39,6 +39,21 @@ export function writeLog(entry) {
 const DEBUG = process.env.DEBUG === '1'
 
 export const ROUTES = {
+  // Zen free-tier lane — BARE model ids as sent by the `opencode` provider
+  // section (port 3459, universal mode). MUST stay at the top: generic
+  // prefixes below ('deepseek-v4-flash', 'mimo', ...) would otherwise swallow
+  // these names and route free traffic to provider-native endpoints.
+  'x-preview-f-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'hy3-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'mimo-v2.5-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'muse-spark-1.2-contributor-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'deepseek-v4-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'ling-3.0-flash-fin-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'laguna-s-2.1-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'big-pickle': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'ox-alpha-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'nemotron-3-ultra-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'nemotron-3.5-lightning-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   // R1 aliases: reasoning must not be echoed back — the 'strip' sentinel
   // admits the request to patchRequestBody (to REMOVE any reasoning fields a
   // client/plugin attached) while excluding it from response-side caching.
@@ -62,9 +77,29 @@ export const ROUTES = {
   gemini: { base: 'https://generativelanguage.googleapis.com/v1beta/openai', reasoningKey: null },
   llama: { base: 'https://api.together.xyz', reasoningKey: null },
   mistral: { base: 'https://api.mistral.ai', reasoningKey: null },
+  // opencode/ zen free-tier models — served by the OpenCode zen gateway at
+  // zen/v1 (chat/completions wire, reasoning_content carrier). Distinct from
+  // the opencode-go namespace (port 3458) handled by fixedUpstreamRoute.
+  // Explicit per-model prefixes only: no catch-all `opencode/` prefix, so paid
+  // opencode/* models keep their existing DEFAULT_ROUTE behavior.
+  'opencode/hy3-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'opencode/mimo-v2.5-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'opencode/muse-spark-1.2-contributor-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'opencode/deepseek-v4-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'opencode/nemotron-3-ultra-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'opencode/nemotron-3.5-lightning-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
 }
 
 export const DEFAULT_ROUTE = { base: 'https://api.deepseek.com', reasoningKey: null }
+
+// F13 (2026-08-27): clients may speak either OpenAI-style relative paths
+// (/v1/...) or the upstream's full official prefix (/api/v1/... — OpenRouter's
+// documented base is https://openrouter.ai/api/v1). Never double the prefix.
+export function upstreamPathFor(reqUrl, basePath) {
+  if (!basePath || basePath === '/' || basePath === '/v1') return reqUrl
+  if (reqUrl === basePath || reqUrl.startsWith(basePath + '/')) return reqUrl
+  return basePath + reqUrl.replace(/^\/v1/, '')
+}
 
 export function route(modelName) {
   if (!modelName) return DEFAULT_ROUTE
@@ -90,6 +125,15 @@ export function fixedUpstreamRoute(modelName, requestUrl = '') {
   // `reasoning` behavior below (no exhaustive per-model validation claimed).
   if (stripped === 'glm-5.2' && String(requestUrl).includes('/chat/completions')) {
     return { base: '', reasoningKey: 'reasoning_content' }
+  }
+  // REASONING_KEY env override (F12, 2026-08-27): lanes fixed to upstreams whose
+  // wire is reasoning_content-based (zen/v1 free models, OpenRouter normalized
+  // per-message passback) set REASONING_KEY=reasoning_content in their unit.
+  // OpenRouter docs define top-level `reasoning` as a config OBJECT on requests,
+  // so a string injection there must use reasoning_content instead. Units without
+  // the env (validated go lane, 3458) keep the unconditional 'reasoning' behavior.
+  if (process.env.REASONING_KEY) {
+    return { base: '', reasoningKey: process.env.REASONING_KEY }
   }
   // Unconditional 'reasoning' for go mode: matches current working behavior
   // for chat/completions models; /responses bodies have no `messages` array

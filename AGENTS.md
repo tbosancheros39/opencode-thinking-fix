@@ -14,8 +14,10 @@ Reasoning models emit chain-of-thought in provider-specific fields (`reasoning_c
 
 ## Architecture
 
-- Port **3457**: model-based routing (20 model prefixes → upstream APIs)
+- Port **3457**: model-based routing (model prefixes → upstream APIs)
 - Port **3458**: fixed upstream to OpenCode Go (`https://opencode.ai/zen/go/v1`)
+- Port **3459**: fixed upstream to OpenCode Zen (`https://opencode.ai/zen/v1`); set `REASONING_KEY=reasoning_content`
+- Port **3462**: fixed upstream to OpenRouter (`https://openrouter.ai/api/v1`); set `REASONING_KEY=reasoning_content`
 
 ## File Layout
 
@@ -31,7 +33,7 @@ Reasoning models emit chain-of-thought in provider-specific fields (`reasoning_c
 │   └── reasoning-proxy-watchdog.service         → watchdog systemd unit
 └── tests/
     ├── test-plugin.js                           → 12 plugin tests
-    └── test-proxy.js                            → 95 proxy tests
+    └── test-proxy.js                            → 127 proxy tests
 ```
 
 ## Prerequisites
@@ -227,6 +229,8 @@ node ~/reasoning-cache-proxy/test-proxy.js   # 95/95 should pass
 
 | Prefix | Upstream | Reasoning |
 |---|---|---|
+| Zen free-tier bare ids (`x-preview-f-free`, `hy3-free`, `mimo-v2.5-free`, `muse-spark-1.2-contributor-free`, `deepseek-v4-flash-free`, `ling-3.0-flash-fin-free`, `laguna-s-2.1-free`, `big-pickle`, `ox-alpha-free`, `nemotron-3-ultra-free`, `nemotron-3.5-lightning-free`) | `https://opencode.ai/zen/v1` | Yes (`reasoning_content`) |
+| `opencode/` + free ids (same set with prefix) | `https://opencode.ai/zen/v1` | Yes (`reasoning_content`) |
 | `deepseek` | `https://api.deepseek.com` | Yes |
 | `deepseek-r1`, `deepseek-reasoner` | `https://api.deepseek.com` | No — actively stripped (`'strip'` sentinel) |
 | `kimi`, `moonshot` | `https://api.moonshot.ai/v1` | Yes |
@@ -256,9 +260,10 @@ node ~/reasoning-cache-proxy/test-proxy.js   # 95/95 should pass
 1. `patchRequestBody` returns `{ body, assistantCount, modified, report }`; `report.turns[].fields` is ALWAYS an array. `proxy.js` consumes the report (`assistantTurns`/`missingText`/`missingReasoning`/`turns.reduce`). Never drop or reshape it.
 2. `reasoningKey` semantics: `'strip'` = R1 only (delete reasoning fields, never cache); `null` = true passthrough (Qwen/GPT/Claude/unknown — never strip, never fabricate); other strings = cache + inject that field only.
 3. Raw-byte SSE forwarding; the parser is a side channel, never re-serialize. Lazy patching: untouched body when reasoning already present.
-4. Go mode never consults `ROUTES`: `/messages` + (minimax|qwen) → `'anthropic'`; glm-5.2 on `/chat/completions` → `'reasoning_content'` (F11); else `'reasoning'`. Kimi strip / `reasoning_split` are 3457-only (`!UPSTREAM_URL`).
+4. Go mode never consults `ROUTES`: `/messages` + (minimax|qwen) → `'anthropic'`; glm-5.2 on `/chat/completions` → `'reasoning_content'`; `REASONING_KEY` env (when set) overrides to that key; else `'reasoning'`. Kimi strip / `reasoning_split` are 3457-only (`!UPSTREAM_URL`).
 5. Logging: proxy = console→journal (DEBUG-gated) + `writeLog` JSONL (ungated); plugin keeps its own `writeLog`. No winston/pino. systemd units stay `Type=simple`/journal/`%h`.
 6. Git: agents never run git commit/push/add/checkout. Working tree only; human publishes via branch + squash merge.
+7. Upstream path handling (`upstreamPathFor` in core.js): if the client URL already starts with the upstream's official base path (e.g. OpenRouter `/api/v1`), forward as-is; never double the prefix.
 
 ## Troubleshooting
 

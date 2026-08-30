@@ -1,0 +1,30 @@
+# Live DeepSeek curl control — opencode-thinking-fix proof pack
+# Endpoint : https://api.deepseek.com/v1/chat/completions
+# Model    : deepseek-v4-flash (thinking-mode model)
+# Key      : active opencode config (env DEEPSEEK_API_KEY was invalid -> 401; retried with config key)
+# Reproduce:  bash curl-with-reasoning.sh   /   bash curl-without-reasoning.sh
+#            (both scripts read $DEEPSEEK_API_KEY from your environment)
+
+## CONTROL A — assistant turn INCLUDES reasoning_content
+HTTP 200
+-> provider accepted the echoed reasoning field; response includes reasoning_content.
+
+## CONTROL B — identical body, reasoning_content REMOVED (single assistant turn w/ tool_calls)
+HTTP 200
+-> Expected HTTP 400 per opencode #24722, but
+   deepseek-v4-flash did NOT reject the missing field.
+
+## CONTROL C — turn-1 HAS reasoning_content, turn-2 (client-sent) LACKS it (realistic drop)
+HTTP 200
+-> Same outcome: deepseek-v4-flash accepted the history with the field absent on
+   the later turn.
+
+## Conclusion
+- reasoning_content round-trips correctly when present (CONTROL A = 200).
+- deepseek-v4-flash does NOT reject its absence (CONTROL B, C = 200) — so this model
+  is NOT a clean 400 control for the dropped-field bug.
+- The dropped-field -> 400 mechanism IS proven on the OpenCode Go gateway for glm-5.2:
+  `reasoning` -> 400, `reasoning_content` -> 200. Live-verified on the deployed gateway: glm-5.2 rejects `reasoning`, accepts `reasoning_content`.
+- opencode #24722 cites deepseek-v4-pro; that model may enforce where v4-flash does not.
+  Left for a later dig (needs a deepseek-v4-pro-capable key) — not required for the
+  SDK-drop proof, which rests on the gateway control + the SDK source snippets.

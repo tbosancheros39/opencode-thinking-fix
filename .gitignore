@@ -33,14 +33,16 @@
 !/package-lock.json
 !/tsconfig.json
 
-# Local-only material: never publish (CHANGELOG.md, tests/, docs/ published selectively below)
+# Local-only material: never publish
 /.serena/
 /node_modules/
+/.cortexkit/
+/.opencode/
 
-# Never publish Markdown other than the public README and license.
+# Never publish Markdown other than the three public root files.
 *.md
-!README.md
-!LICENSE.md
+!/README.md
+!/LICENSE.md
 !/AGENTS.md
 
 # Credentials, private keys, and temporary patch artifacts
@@ -85,9 +87,10 @@ Thumbs.db
 # ── Selective publish (override the local-only + *.md rules above) ──
 !/CHANGELOG.md
 !/tests/
-!/docs/
-/docs/*
-!/docs/adr-0002-deferred-wire-split.md
-/docs/memory/
-/docs/for-vibercoder.md
-/docs/*.validated.md
+!/tests/**
+
+# proof/ evidence package: data, logs, scripts, configs only.
+# Markdown inside proof/ stays local-only (re-ignored below; later rules win).
+!/proof/
+!/proof/**
+proof/**/*.md

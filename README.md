@@ -10,23 +10,65 @@
 npm install opencode-thinking-fix
 ```
 
-> Restores reasoning content that clients and SDKs drop from multi-turn conversations — DeepSeek, Kimi, GLM, MiMo, MiniMax, and OpenCode Go.
+> Restores reasoning content that clients and SDKs drop from multi-turn conversations — DeepSeek, Kimi, GLM, MiMo, MiniMax, OpenCode Go, and OpenRouter.
 >
-> **Zero config.** Install via `Ctrl+P`, restart OpenCode, done. The plugin auto-detects reasoning models and only patches when needed.
+> **Zero config.** Install via `Ctrl+P`, restart OpenCode, done. The plugin detects reasoning models and only patches when needed.
 >
 > Docs: [OpenCode Plugins](https://opencode.ai/docs/plugins)
 
-Your AI has a secret notebook.
+## The problem
 
-When DeepSeek or Kimi answers you, it scribbles notes first. "Let me think... the user wants a login page... I should use React Hook Form... check the API docs..." These notes are `reasoning_content`. You never see them. But the AI needs them.
+When DeepSeek or Kimi answers you, it scribbles notes first. "Let me think... the user wants a login page... I should use React Hook Form... check the API docs..." These notes are `reasoning_content`. You never see them. But the AI needs them — the provider docs require the notes to be sent back on every later turn.
 
-The client and its SDK throw the notebook away. Next turn, the AI reaches for it — but the request already went to the API without it. The request carries no notes, or a blank notebook. The AI doesn't crash, but it forgot everything it was thinking. That is why your AI seems dumber on turn 2. It's not dumber. It just lost its notes.
+The client and its SDK throw the notebook away. Next turn, the AI reaches for it, but the request already went out without it. The AI doesn't crash. It just forgot everything it was thinking. That is why your AI seems dumber on turn 2. It's not dumber. It lost its notes.
 
-The drop happens in SDK serializers and client transforms (truthy checks, missing type members, stripped signatures), not in the providers — the providers are doing exactly what their docs say.
+The drop happens in SDK serializers and client transforms (truthy checks, missing type members, stripped signatures), not in the providers. The providers do exactly what their docs say.
 
-**Without the plugin:** "Build me a login page." → AI builds it. "Now add password reset." → AI lost its notes, conversation degrades.
+**Without the fix:** "Build me a login page." → AI builds it. "Now add password reset." → notes gone, the answer comes back generic.
 
-**With the plugin:** "Build me a login page." → AI builds it, notes saved. "Now add password reset." → AI reads its notes: "I used React Hook Form for login, I'll extend that for password reset." → Works.
+**With the fix:** "Now add password reset." → AI reads its notes: "I used React Hook Form for login, I'll extend that." → works.
+
+## See it happen in 5 minutes
+
+You need OpenCode and any reasoning model. No proxy, no plugin — this reproduces the drop on a stock install.
+
+1. Start a session with a reasoning model (free tier works, e.g. `opencode/hy3-free`) and give it a real task. It thinks, answers, and emits `reasoning_content`.
+2. Ask a follow-up that depends on the first answer, then capture the outgoing request. Every `reasoning_content` field from turn 1 arrives empty or missing.
+3. The same request through the SDK alone keeps the field. The client is the difference.
+
+Captured evidence for exactly this sequence: [`proof/free-models/`](proof/free-models/). The A/B controls that isolate the field as the only variable: [`proof/curl-control-results.txt`](proof/curl-control-results.txt).
+
+## Why you've probably never seen it
+
+This bug is conditional, and the conditions are "you work the tool hard":
+
+- **Short sessions never hit it.** The drop happens on turn 2+, worst after tool calls. A two-message chat looks fine.
+- **Most gateways don't enforce the contract.** On the free `opencode/zen` tier and OpenRouter, a missing field is accepted, so nothing errors. The model just quietly loses context. No 400, no warning, only worse answers.
+- **Non-reasoning models are unaffected.** GPT, Claude, Qwen, Gemini never emit the field.
+
+If you run long sessions, heavy tool calls, model switching, or subagents, you have probably been hit and blamed the model. That is who this fix is for. If you send three messages a day, you may genuinely never notice — and the plugin detects that and does nothing.
+
+## The evidence
+
+We ran four passive taps (DeepSeek, OpenCode Go, OpenCode Zen, OpenRouter) that forwarded traffic byte-for-byte untouched and logged only metadata. They ran for a week of real work, then were retired. Methodology and raw data: [`proof/` directory](proof/).
+
+- **1,968 drops captured** — a turn that carried reasoning earlier in the same session arrives at the API without it.
+- **2.29 million characters** of reasoning erased over a week of real traffic.
+- **68% of drops happened with zero model change** — same model, same session. Not a model-switch artifact.
+- **OpenRouter drops it too** — 22 drops with confirmed session identity on models served through openrouter.ai, plus the same pattern on DeepSeek and OpenCode Go lanes.
+- **The SDK is innocent.** `@ai-sdk/openai-compatible` round-trips the field correctly; the drop happens in the client's own transform. Captured side by side in [`proof/free-models/`](proof/free-models/).
+
+Every number is recomputable from [`proof/reasoning-drop/drops.csv`](proof/reasoning-drop/drops.csv) and [`proof/reasoning-drop/switches.csv`](proof/reasoning-drop/switches.csv).
+
+## For the skeptics
+
+Three objections come up every time this is posted. Fair questions, with the evidence:
+
+**"Works on my side."** Probably true. The drop is silent on most gateways — no 400, just worse answers, so nothing looks broken unless you compare turn-3 quality with and without. The A/B controls hold everything constant except the field. And the 68% stat rules out model switching as the explanation.
+
+**"Your config is broken."** The configs this was captured on are published, redacted, in [`proof/` directory](proof/). The root cause is in the client's message transform, not config — the SDK control shows the field surviving when only the client is removed from the path.
+
+**"The model cards already say to pass reasoning back."** They do. That is the point. The provider requires the field; the client drops it. The model card is the spec this repo implements.
 
 ---
 
@@ -125,7 +167,7 @@ opencode plugin opencode-thinking-fix
 For a specific version:
 
 ```bash
-opencode plugin opencode-thinking-fix@3.2.0
+opencode plugin opencode-thinking-fix@3.3.0
 ```
 
 Restart OpenCode after installing.
@@ -150,13 +192,17 @@ See also: [OpenCode plugin docs](https://opencode.ai/docs/plugins)
 
 ---
 
-- [What problem this fixes](#what-problem-this-fixes)
+- [The problem](#the-problem)
+- [See it happen in 5 minutes](#see-it-happen-in-5-minutes)
+- [Why you've probably never seen it](#why-youve-probably-never-seen-it)
+- [The evidence](#the-evidence)
+- [For the skeptics](#for-the-skeptics)
 - [Option 1: Plugin (safety net)](#option-1-plugin-safety-net)
 - [Option 2: Proxy (replays real reasoning)](#option-2-proxy-replays-real-reasoning)
 - [Option 3: Watchdog (auto-recovery)](#option-3-watchdog-auto-recovery)
 - [How they work together](#how-they-work-together)
 - [Affected models](#affected-models)
-- [Model routing](#model-routing)
+- [Model routing](#model-routing-proxy-port-3457)
 - [Is it working?](#is-it-working)
 - [This bug is everywhere](#this-bug-is-everywhere)
 - [Files in this repo](#files-in-this-repo)
@@ -171,7 +217,7 @@ The client/SDK dropped the field before it reached the API — the providers are
 
 > **Deprecated:** the historical symptom of this drop — `HTTP 400: The reasoning_content in the thinking mode must be passed back to the API` — is **resolved** by this fix. This repo is about the drop itself, not the error it used to cause.
 
-DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) say it clearly: if you do not pass back `reasoning_content` correctly, the API rejects the request. All five providers confirm this in their official documentation:
+DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) describe the contract, and the strictness varies by provider and endpoint: some reject the request, some ignore the field, and the conversation still loses its context either way. All five providers confirm the passback requirement in their official documentation:
 
 - **DeepSeek**: "[The reasoning_content will be ignored by the API](https://api-docs.deepseek.com/guides/thinking_mode)", but the conversation history must contain the field.
 - **Z.AI / GLM**: "[Key: return reasoning_content to keep the reasoning coherent](https://docs.z.ai/en/api/thinking)."
@@ -349,6 +395,7 @@ The plugin is the safety net. If the proxy goes down, the plugin still injects e
 | MiMo V2.5 | Yes | Nice to have | `reasoning_content` on `api.xiaomimimo.com/v1` |
 | **MiniMax-M3** | Yes | **Recommended** | `reasoning_details[]` array; ~40% quality loss if stripped. Proxy injects `reasoning_split:true` to keep thinking separate from content. |
 | OpenCode Go | Yes | Recommended for chat/message routes | Chat uses `reasoning`; Anthropic messages are handled; unsupported response formats pass through |
+| OpenRouter (reasoning models via openrouter.ai) | Yes | Recommended | Field depends on the upstream model; the fixed-upstream proxy replays `reasoning_content` and passes everything else through |
 | Qwen, GPT, Claude, Gemini, Llama, Mistral | No | No | No reasoning_content |
 
 ---
@@ -374,15 +421,37 @@ The proxy auto-routes by model name prefix. All routes:
 
 Unknown models fall back to `https://api.deepseek.com` with reasoning disabled.
 
+### OpenRouter (port 3462)
+
+OpenRouter wraps many upstream models, and reasoning models served through it lose their thinking the same way. Run a third fixed-upstream proxy and point your OpenRouter provider at it:
+
+```bash
+PORT=3462 UPSTREAM_URL=https://openrouter.ai/api/v1 REASONING_KEY=reasoning_content node proxy/proxy.js
+```
+
+```json
+{
+  "provider": {
+    "openrouter": {
+      "options": {
+        "baseURL": "http://127.0.0.1:3462/v1"
+      }
+    }
+  }
+}
+```
+
+The passive-tap corpus includes an OpenRouter lane: 22 session-confirmed drops, concentrated on `minimax/minimax-m3:free` within one long session — enough to show the pattern exists on OpenRouter, with the full model-by-model matrix left to a follow-up corpus. See [The evidence](#the-evidence).
+
 ---
 
 ## Is it working?
 
 The plugin writes a structured JSON log: `~/.local/share/opencode/thinking-fix.log`.
 
-628 unique sessions. 12,551 inspect events (the hook fires twice per message by design — first pass patches, second confirms clean). 297 reasoning model sessions patched, 331 non-reasoning correctly skipped. Zero false patches.
+Every request logs an `inspect` event (field coverage, whether the model is a reasoning model, how many turns were patched), so the plugin is auditable even when it patches nothing. Non-reasoning models are skipped by design — zero false patches is a property of the self-detection, not a promise bolted on.
 
-Before and after, from a real session:
+From a real 104-message session:
 
 ```
 Before:  reasoning dropped on every turn → AI forgets its thinking
@@ -454,11 +523,16 @@ systemd/
   reasoning-cache.service               # proxy systemd unit (port 3457)
   reasoning-cache-go.service            # OpenCode Go proxy unit (port 3458)
   reasoning-proxy-watchdog.service      # watchdog systemd unit
+tests/
+  test-proxy.js                         # 127 proxy assertions
+  test-plugin.js                        # 12 plugin assertions
+  live-minimax-replay.mjs               # self-contained replay gate (mock upstream)
+proof/                                  # evidence: captures, controls, CSVs, repro scripts
 ```
 
 ## Release highlights
 
-- **v3.2.0:** R1 `strip` sentinel (actively remove reasoning for `deepseek-r1`/`deepseek-reasoner`), multibyte-safe SSE decoding (StringDecoder), response hop-by-hop header stripping, oversized-reasoning skip-not-truncate, MiniMax replay shape behind `MINIMAX_REASONING_DETAILS_SHAPE` (default `minimal`), a real-core test suite (95 assertions), glm-5.2 go-mode `reasoning_content` key (F11, live-verified), derived session keys (Option C), and `x-session-id` no longer forwarded upstream. See the changelog.
+- **v3.2.0:** R1 `strip` sentinel (actively remove reasoning for `deepseek-r1`/`deepseek-reasoner`), multibyte-safe SSE decoding (StringDecoder), response hop-by-hop header stripping, oversized-reasoning skip-not-truncate, MiniMax replay shape behind `MINIMAX_REASONING_DETAILS_SHAPE` (default `minimal`), a real-core test suite (95 assertions), glm-5.2 go-mode `reasoning_content` key (live-verified across two turns), derived session keys, and `x-session-id` no longer forwarded upstream. See the changelog.
 - **v3.1.4:** proxy-owned structured JSONL logging with session identifiers truncated in logs.
 - **v3.1.3:** Anthropic-wire dialect detection for OpenCode Go routes.
 - **v3.1.2:** bounded cache/session memory, raw-stream preservation, hop-by-hop header removal, and safer parser failure handling.

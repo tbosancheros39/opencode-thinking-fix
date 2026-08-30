@@ -1,0 +1,21 @@
+# opencode/nemotron-3.5-lightning-free — direct to https://opencode.ai/zen/v1/chat/completions (no proxy)
+# auth: Authorization: Bearer <REDACTED> (from ~/.local/share/opencode/auth.json "opencode" key)
+
+--- TURN 1 REQUEST ---
+POST https://opencode.ai/zen/v1/chat/completions
+body: {"model":"nemotron-3.5-lightning-free","messages":[{"role":"user","content":"List files in the repo."}],"tools":[{"type":"function","function":{"name":"list_files","description":"List files in the repo","parameters":{"type":"object","properties":{}}}}],"stream":false}
+HTTP 200
+turn-1 reasoning field: reasoning (110 chars)
+turn-1 reasoning excerpt: The user asks: "List files in the repo." We need to call list_files function with no arguments. Let's do that.
+turn-1 tool_calls: [{"index":0,"id":"call-bdd26da5-5c98-4274-9c1c-327abbd9b5b8","type":"function","function":{"name":"list_files","arguments":"{}"}}]
+turn-1 full response (first 600): {"id":"gen-1787169612-cSUGk3DIneadUzJIX1Af","object":"chat.completion","created":1787169612,"model":"nemotron-3.5-lightning-free","choices":[{"index":0,"finish_reason":"tool_calls","logprobs":null,"message":{"role":"assistant","content":null,"refusal":null,"reasoning":"The user asks: \"List files in the repo.\" We need to call list_files function with no arguments. Let's do that.","reasoning_details":[{"type":"reasoning.text","text":"The user asks: \"List files in the repo.\" We need to call list_files function with no arguments. Let's do that.","format":"unknown","index":0}],"tool_calls":[{"i
+
+--- TURN 2 REQUEST (drop) ---
+body: {"model":"nemotron-3.5-lightning-free","messages":[{"role":"user","content":"List files in the repo."},{"role":"assistant","content":"","tool_calls":[{"index":0,"id":"call-bdd26da5-5c98-4274-9c1c-327abbd9b5b8","type":"function","function":{"name":"list_files","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call-bdd26da5-5c98-4274-9c1c-327abbd9b5b8","content":"[\"src/\", \"tests/\"]"},{"role":"user","content":"Now read src/main.ts."}],"tools":[{"type":"function","function":{"name":"read_file","description":"Read a file from the repo","parameters":{"type":"object","properties":{"file":{"type":"string"}},"required":["file"]}}}],"stream":false}
+HTTP 200
+turn-2 response body (first 500): {"id":"gen-1787169613-JiJgC5ppELUvCyEBgvjA","object":"chat.completion","created":1787169613,"model":"nemotron-3.5-lightning-free","choices":[{"index":0,"finish_reason":"tool_calls","logprobs":null,"message":{"role":"assistant","content":null,"refusal":null,"reasoning":"We need to read file src/main.ts using read_file.","reasoning_details":[{"type":"reasoning.text","text":"We need to read file src/main.ts using read_file.","format":"unknown","index":0}],"tool_calls":[{"index":0,"id":"call-3e80b14
+
+--- TURN 2b REQUEST (with reasoning) ---
+body: {"model":"nemotron-3.5-lightning-free","messages":[{"role":"user","content":"List files in the repo."},{"role":"assistant","content":"","tool_calls":[{"index":0,"id":"call-bdd26da5-5c98-4274-9c1c-327abbd9b5b8","type":"function","function":{"name":"list_files","arguments":"{}"}}],"reasoning":"The user asks: \"List files in the repo.\" We need to call list_files function with no arguments. Let's do that."},{"role":"tool","tool_call_id":"call-bdd26da5-5c98-4274-9c1c-327abbd9b5b8","content":"[\"src/\", \"tests/\"]"},{"role":"user","content":"Now read src/main.ts."}],"tools":[{"type":"function","function":{"name":"read_file","description":"Read a file from the repo","parameters":{"type":"object","properties":{"file":{"type":"string"}},"required":["file"]}}}],"stream":false}
+HTTP 200
+turn-2b response body (first 500): {"id":"gen-1787169614-Tr3Ca1vVdZEHSHyQoy3Q","object":"chat.completion","created":1787169614,"model":"nemotron-3.5-lightning-free","choices":[{"index":0,"finish_reason":"tool_calls","logprobs":null,"message":{"role":"assistant","content":null,"refusal":null,"reasoning":"We need to read the file src/main.ts. Use read_file.","reasoning_details":[{"type":"reasoning.text","text":"We need to read the file src/main.ts. Use read_file.","format":"unknown","index":0}],"tool_calls":[{"index":0,"id":"call-0
