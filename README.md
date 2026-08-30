@@ -113,9 +113,7 @@ causing cross-provider poisoning. v3.1 fixes that:
   (MiniMax split mode), `reasoning` (OpenCode Go / fixed-upstream). Previously the proxy
   filled all three fields, so a GLM turn stored under `reasoning` could poison a later
   DeepSeek replay that expects `reasoning_content`.
-- **R1 vs V4 split.** `deepseek-reasoner` (R1) must **not** receive reasoning echoed back
-  (400 if you do) while V4 must. R1 uses the v3.2 `reasoningKey: 'strip'` sentinel,
-  which actively removes reasoning fields before forwarding.
+- **Legacy DeepSeek aliases vs V4.** DeepSeek retired the `deepseek-chat` / `deepseek-reasoner` aliases on 2026-07-24; the current catalog is `deepseek-v4-flash`, `deepseek-v4-pro`, and the experimental `deepseek-v4-flash-vision-exp`. While the R1 alias was live it had the inverted contract (echoed reasoning → 400), which is why the proxy carries a `strip` route: it actively removes reasoning fields before forwarding, kept today only as a compatibility guard for clients that still send the old name. V4 thinking mode uses the normal passback contract instead.
 - **Never fabricate reasoning.** Unknown models and providers that reject echo
   (Qwen, GPT, Claude, Gemini, Llama, Mistral, Cerebras-hosted GLM) default to
   `reasoningKey: null` — the body is forwarded untouched.
@@ -389,6 +387,7 @@ The plugin is the safety net. If the proxy goes down, the plugin still injects e
 | Model | Plugin helps | Proxy helps | What it needs |
 |---|---|---|---|
 | DeepSeek V4 Pro / Flash | Yes | Nice to have | Accepts `""` (tool-call turns need real text) |
+| DeepSeek V4 Flash Vision (exp) | Yes | Nice to have | Text + image input on a separate model id; same passback contract |
 | Kimi K2.5 / K2.6 | Yes | Nice to have | Accepts `""` |
 | **Kimi K2.7 Code** | **Not enough alone** | **Required** | Field must be *present*; real text keeps it coherent |
 | GLM-5.x / Zhipu | Yes | Nice to have | Accepts `""` |
@@ -406,8 +405,9 @@ The proxy auto-routes by model name prefix. All routes:
 
 | Prefix | Upstream | Reasoning |
 |---|---|---|
-| `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-chat` | `https://api.deepseek.com` | Yes (`reasoning_content`) |
-| `deepseek-reasoner` | `https://api.deepseek.com` | **No — actively stripped** (R1 contract: reasoning must NOT be echoed) |
+| `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4-flash-vision-exp` | `https://api.deepseek.com` | Yes (`reasoning_content`) |
+| `deepseek-chat` | `https://api.deepseek.com` | Non-thinking alias (no reasoning emitted; passback is a harmless no-op) |
+| `deepseek-r1`, `deepseek-reasoner` | `https://api.deepseek.com` | Legacy — retired by DeepSeek 2026-07-24; kept as a compatibility guard with active stripping |
 | `kimi`, `moonshot` | `https://api.moonshot.ai/v1` | Yes (`reasoning_content`) |
 | `glm`, `zhipu` | `https://open.bigmodel.cn/api/paas/v4` | Yes (`reasoning_content`) |
 | `minimax` | `https://api.minimax.io/v1` | Yes (`reasoning_details`, `reasoning_split:true`) |

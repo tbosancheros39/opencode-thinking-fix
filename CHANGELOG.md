@@ -2,6 +2,10 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## 3.3.1 - 2026-08-30
+
+- Model names corrected to the current DeepSeek catalog: `deepseek-v4-flash`, `deepseek-v4-pro`, and the experimental `deepseek-v4-flash-vision-exp` are the active ids. `deepseek-chat` / `deepseek-reasoner` are marked as aliases DeepSeek retired on 2026-07-24, and the `strip` route is reframed as a compatibility guard rather than the current contract. Docs-only change; routing behavior is unchanged.
+
 ## 3.3.0 - 2026-08-30
 
 - OpenRouter support: a third fixed-upstream proxy (port 3462, `openrouter.ai/api/v1`) caches and replays reasoning for models served through OpenRouter. The passive-tap corpus shows the same drop there (22 confirmed, session-identity verified).

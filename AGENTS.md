@@ -232,7 +232,8 @@ node ~/reasoning-cache-proxy/test-proxy.js   # 95/95 should pass
 | Zen free-tier bare ids (`x-preview-f-free`, `hy3-free`, `mimo-v2.5-free`, `muse-spark-1.2-contributor-free`, `deepseek-v4-flash-free`, `ling-3.0-flash-fin-free`, `laguna-s-2.1-free`, `big-pickle`, `ox-alpha-free`, `nemotron-3-ultra-free`, `nemotron-3.5-lightning-free`) | `https://opencode.ai/zen/v1` | Yes (`reasoning_content`) |
 | `opencode/` + free ids (same set with prefix) | `https://opencode.ai/zen/v1` | Yes (`reasoning_content`) |
 | `deepseek` | `https://api.deepseek.com` | Yes |
-| `deepseek-r1`, `deepseek-reasoner` | `https://api.deepseek.com` | No — actively stripped (`'strip'` sentinel) |
+| `deepseek-chat` | `https://api.deepseek.com` | Yes — non-thinking alias, passback is a no-op |
+| `deepseek-r1`, `deepseek-reasoner` | `https://api.deepseek.com` | Legacy — retired by DeepSeek 2026-07-24; kept as compat guard (`'strip'` sentinel) |
 | `kimi`, `moonshot` | `https://api.moonshot.ai/v1` | Yes |
 | `glm`, `zhipu` | `https://open.bigmodel.cn/api/paas/v4` | Yes |
 | `minimax` | `https://api.minimax.io/v1` | Yes (`reasoning_details`) |
