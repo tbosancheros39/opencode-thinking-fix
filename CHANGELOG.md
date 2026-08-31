@@ -2,6 +2,10 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## 3.3.4 - 2026-08-30
+
+- README evidence section reframed: the "See it happen in 5 minutes" anchor on a single free-tier model id is gone, replaced with a generic 4-step reproduction and a dataset-first section that leads with the 2.29M char / 1,968 drops / 22-OpenRouter-drops / 68% zero-model-change numbers. "The evidence" section kept for the SDK-is-innocent and switches.csv pointers so nothing is lost.
+
 ## 3.3.3 - 2026-08-30
 
 - README reframed the plugin's role honestly: the hard 400 is mostly resolved on modern gateways but still happens once in a while (native DeepSeek tool-call turns, present-required models like Kimi K2.7 Code, proxy downtime), so the plugin stays as cheap insurance while the proxy remains the actual fix. Also documents that native DeepSeek treats present-but-empty as missing on tool-call turns.

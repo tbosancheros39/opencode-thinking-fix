@@ -28,15 +28,27 @@ The drop happens in SDK serializers and client transforms (truthy checks, missin
 
 **With the fix:** "Now add password reset." → AI reads its notes: "I used React Hook Form for login, I'll extend that." → works.
 
-## See it happen in 5 minutes
+## See it happen
 
-You need OpenCode and any reasoning model. No proxy, no plugin — this reproduces the drop on a stock install.
+You don't need a specific free-tier model. Use any reasoning model on your own API key (DeepSeek V4, Kimi K2.7, GLM-5, MiMo) or any reasoning-capable model from the routing table below.
 
-1. Start a session with a reasoning model (free tier works, e.g. `opencode/hy3-free`) and give it a real task. It thinks, answers, and emits `reasoning_content`.
-2. Ask a follow-up that depends on the first answer, then capture the outgoing request. Every `reasoning_content` field from turn 1 arrives empty or missing.
-3. The same request through the SDK alone keeps the field. The client is the difference.
+### 1. The 4-step reproduction
 
-Captured evidence for exactly this sequence: [`proof/free-models/`](proof/free-models/). The A/B controls that isolate the field as the only variable: [`proof/curl-control-results.txt`](proof/curl-control-results.txt).
+1. Start a session with a reasoning model and give it a task that requires a tool call ("List the files in this directory, then read the largest one").
+2. The model thinks, emits `reasoning_content`, and calls the tool.
+3. Ask a follow-up that depends on the first answer ("Now summarize what you just read").
+4. Capture the outgoing Turn-2 request. Every `reasoning_content` field from Turn 1 is missing or empty. The client dropped it.
+
+### 2. The dataset (the actual proof)
+
+If you don't want to run it yourself, the `proof/` directory contains the raw data from a week-long passive tap of real production traffic, byte-for-byte unmodified across DeepSeek, OpenCode Go, OpenCode Zen, and OpenRouter:
+
+- **1,968 drops captured** (turns that carried reasoning earlier in the session arrived at the API without it).
+- **2.29 million characters** of reasoning erased.
+- **22 of those drops were on OpenRouter** — proving it is not a direct-provider quirk.
+- **68% of drops happened with zero model change** (same model, same session, drop mid-conversation).
+
+Every number is recomputable from `proof/reasoning-drop/drops.csv`. The A/B controls isolating the client as the sole point of failure live in `proof/free-models/`. The headline is the dataset; the recipe is a courtesy.
 
 ## Why you've probably never seen it
 
@@ -50,15 +62,10 @@ If you run long sessions, heavy tool calls, model switching, or subagents, you h
 
 ## The evidence
 
-We ran four passive taps (DeepSeek, OpenCode Go, OpenCode Zen, OpenRouter) that forwarded traffic byte-for-byte untouched and logged only metadata. They ran for a week of real work, then were retired. Methodology and raw data: [`proof/` directory](proof/).
+The numbers above come from four passive taps (DeepSeek, OpenCode Go, OpenCode Zen, OpenRouter) that forwarded traffic byte-for-byte untouched and logged only metadata. They ran for a week of real work, then were retired. Methodology and raw data: [`proof/` directory](proof/).
 
-- **1,968 drops captured** — a turn that carried reasoning earlier in the same session arrives at the API without it.
-- **2.29 million characters** of reasoning erased over a week of real traffic.
-- **68% of drops happened with zero model change** — same model, same session. Not a model-switch artifact.
-- **OpenRouter drops it too** — 22 drops with confirmed session identity on models served through openrouter.ai, plus the same pattern on DeepSeek and OpenCode Go lanes.
 - **The SDK is innocent.** `@ai-sdk/openai-compatible` round-trips the field correctly; the drop happens in the client's own transform. Captured side by side in [`proof/free-models/`](proof/free-models/).
-
-Every number is recomputable from [`proof/reasoning-drop/drops.csv`](proof/reasoning-drop/drops.csv) and [`proof/reasoning-drop/switches.csv`](proof/reasoning-drop/switches.csv).
+- **Model-switch baseline** is in [`proof/reasoning-drop/switches.csv`](proof/reasoning-drop/switches.csv) so the 68% zero-model-change number is auditable independently of the drops file.
 
 ## For the skeptics
 
@@ -195,7 +202,7 @@ See also: [OpenCode plugin docs](https://opencode.ai/docs/plugins)
 ---
 
 - [The problem](#the-problem)
-- [See it happen in 5 minutes](#see-it-happen-in-5-minutes)
+- [See it happen](#see-it-happen)
 - [Why you've probably never seen it](#why-youve-probably-never-seen-it)
 - [The evidence](#the-evidence)
 - [For the skeptics](#for-the-skeptics)
