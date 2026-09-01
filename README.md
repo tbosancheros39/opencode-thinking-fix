@@ -55,7 +55,7 @@ Every number is recomputable from `proof/reasoning-drop/drops.csv`. The A/B cont
 This bug is conditional, and the conditions are "you work the tool hard":
 
 - **Short sessions never hit it.** The drop happens on turn 2+, worst after tool calls. A two-message chat looks fine.
-- **Most gateways don't enforce the contract.** On the free `opencode/zen` tier and OpenRouter, a missing field is accepted, so nothing errors. The model just quietly loses context. No 400, no warning, only worse answers.
+- **Most gateways don't enforce the contract.** On the free `opencode/zen` tier and OpenRouter, a missing field is accepted, so nothing errors. The model just quietly loses context. No 400, no warning, only worse answers. Even DeepSeek's own V4 API returns 200 with the field missing (verified against both `deepseek-v4-flash` and `deepseek-v4-pro` on 2026-08-31, see `proof/curl-control-results.txt`).
 - **Non-reasoning models are unaffected.** GPT, Claude, Qwen, Gemini never emit the field.
 
 If you run long sessions, heavy tool calls, model switching, or subagents, you have probably been hit and blamed the model. That is who this fix is for. If you send three messages a day, you may genuinely never notice — and the plugin detects that and does nothing.
@@ -224,7 +224,7 @@ You ask DeepSeek a question. It picks a tool, calls it, works fine. Then you ask
 
 The client/SDK dropped the field before it reached the API — the providers are doing exactly what their docs say. The drop happens in SDK serializers and client transforms.
 
-> **Deprecated:** the historical symptom of this drop — `HTTP 400: The reasoning_content in the thinking mode must be passed back to the API` — is **resolved** by this fix. This repo is about the drop itself, not the error it used to cause.
+> **Deprecated:** the historical symptom of this drop — `HTTP 400: The reasoning_content in the thinking mode must be passed back to the API` — is **resolved** by this fix. This repo is about the drop itself, not the error it used to cause. (DeepSeek's current V4 API no longer rejects a missing field either — controls D and E in `proof/curl-control-results.txt` returned 200 on both `deepseek-v4-flash` and `deepseek-v4-pro`.) The one live-verified 400 that still exists: the OpenCode Go gateway rejects `reasoning` on glm-5.2 while accepting `reasoning_content`.
 
 DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) describe the contract, and the strictness varies by provider and endpoint: some reject the request, some ignore the field, and the conversation still loses its context either way. All five providers confirm the passback requirement in their official documentation:
 

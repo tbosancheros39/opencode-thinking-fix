@@ -1,5 +1,5 @@
 {
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-v4-pro",
   "messages": [
     { "role": "user", "content": "List files in the repo" },
     {
