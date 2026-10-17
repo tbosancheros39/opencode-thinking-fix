@@ -55,7 +55,7 @@ Every number is recomputable from `proof/reasoning-drop/drops.csv`. The A/B cont
 This bug is conditional, and the conditions are "you work the tool hard":
 
 - **Short sessions never hit it.** The drop happens on turn 2+, worst after tool calls. A two-message chat looks fine.
-- **Most gateways don't enforce the contract.** On the free `opencode/zen` tier and OpenRouter, a missing field is accepted, so nothing errors. The model just quietly loses context. No 400, no warning, only worse answers. Even DeepSeek's own V4 API returns 200 with the field missing (verified against both `deepseek-v4-flash` and `deepseek-v4-pro` on 2026-08-31, see `proof/curl-control-results.txt`).
+- **Most gateways don't enforce the contract.** On the free `opencode/zen` tier and OpenRouter, a missing field is accepted, so nothing errors. The model just quietly loses context. No 400, no warning, only worse answers.
 - **Non-reasoning models are unaffected.** GPT, Claude, Qwen, Gemini never emit the field.
 
 If you run long sessions, heavy tool calls, model switching, or subagents, you have probably been hit and blamed the model. That is who this fix is for. If you send three messages a day, you may genuinely never notice — and the plugin detects that and does nothing.
@@ -125,6 +125,17 @@ causing cross-provider poisoning. v3.1 fixes that:
   (Qwen, GPT, Claude, Gemini, Llama, Mistral, Cerebras-hosted GLM) default to
   `reasoningKey: null` — the body is forwarded untouched.
 
+## v3.4 — Z.ai Preserved Thinking (F12, intel-driven)
+
+The proxy injects the field, but some providers strip it *server-side* before it reaches the model. Z.ai is the most common case: the standard Chat Completions endpoint defaults `thinking.clear_thinking` to `true`, so prior `reasoning_content` is removed from context even when the client passes it back correctly. The result is a GLM session that re-derives from scratch every turn, loops, and burns tokens — with the proxy fully active.
+
+v3.4 fixes this on every Z.ai-reachable lane:
+
+- **What is injected.** `thinking.clear_thinking: false` on the request body, which opts the session into Z.ai Preserved Thinking. The field is idempotently merged with any client-supplied `thinking` (e.g. `thinking.type: "enabled"`), so client choices are preserved.
+- **Where it fires.** Any lane that ends at a Z.ai-reachable host: port 3457 universal (BigModel direct), port 3458 (OpenCode Go gateway), port 3462 (OpenRouter → Z.ai under the hood). The host allowlist is conservative — unknown upstreams are skipped.
+- **What is skipped.** The injection is skipped when the client explicitly disabled thinking (`thinking: false`) — forcing preserved thinking on top of disabled thinking would be incoherent. The Coding Plan endpoint already defaults `clear_thinking: false`, so the merge is a no-op there.
+- **Source of truth.** [docs.z.ai/guides/capabilities/thinking-mode](https://docs.z.ai/guides/capabilities/thinking-mode) (Preserved Thinking section) and the [chat completion API reference](https://docs.z.ai/api-reference/llm/chat-completion) (the `thinking.clear_thinking` parameter, type `boolean`, default `true`).
+
 ### "Another way" — do you even need the plugin now?
 
 The reasoning-drop is fixed at the wire layer by the proxy, so you have three options:
@@ -136,6 +147,22 @@ The reasoning-drop is fixed at the wire layer by the proxy, so you have three op
 | **Full plugin + proxy** (old default) | Maximum safety net | Plugin's per-message transform adds overhead inside OpenCode |
 
 **Recommendation:** run the proxy, and slim the plugin down to *just* the `x-session-id` header injection (delete its message-transform hook). That gives you real reasoning replay with the least overhead.
+
+## v3.4.1 — InclusionAI Ling 3.0 Flash route (F19)
+
+Three new entries in the port 3457 model-routing table cover InclusionAI's flagship flash reasoning model:
+
+| Model id | Upstream | Why this route |
+|---|---|---|
+| `inclusionai/ling-3.0-flash` (paid) | `https://openrouter.ai/api/v1` | Primary distribution; OR exposes `delta.reasoning` + `delta.reasoning_details` on the response side and normalizes `reasoning_content` on the input side |
+| `inclusionai/ling-3.0-flash:free` (free tier) | `https://openrouter.ai/api/v1` | Same model on the same upstream; rate-limited per upstream (Novita/DeepInfra) but otherwise identical |
+| `opencode/ling-3.0-flash-fin-free` | `https://opencode.ai/zen/v1` | OpenCode Zen free-tier lane, same carrier as the other Zen free models; previously fell through to the DeepSeek default and 400'd |
+
+No code change to the proxy logic itself — only the route table. Reasoning replay works the same way as for the other Chinese reasoning models: the SSE parser reads `delta.reasoning` (and the array form from `delta.reasoning_details`), the proxy caches it keyed by `x-session-id` + assistant index, and the next turn echoes it back as `reasoning_content` (which OpenRouter normalizes on outbound to the upstream).
+
+Live-verified with a two-turn reasoning-continuity test on port 3457. Turn 1 emitted 271 chars of reasoning on a 7×6 step-by-step; turn 2 (with the cached `reasoning_content` echoed back) referenced the prior step ("The user previously asked for 7 times 6, and I was in the process of showing step-by-step work. The result of 7 × 6 is 42.") and continued to 42+5=47. Upstream was Novita.
+
+Sources: [openrouter.ai/inclusionai/ling-3.0-flash](https://openrouter.ai/inclusionai/ling-3.0-flash) (model page), [ant-ling.com/en/docs/api-reference/openai/](https://ant-ling.com/en/docs/api-reference/openai/) (native ant-ling OpenAI-compatible API), [huggingface.co/inclusionAI/Ling-3.0-flash](https://huggingface.co/inclusionAI/Ling-3.0-flash) (model card), [github.com/inclusionAI](https://github.com/inclusionAI) (org), [arxiv.org/abs/2606.15079](https://arxiv.org/abs/2606.15079) (Ling/Ring 2.6 technical report).
 
 ## Plugin optionality and derived sessions
 
@@ -224,7 +251,7 @@ You ask DeepSeek a question. It picks a tool, calls it, works fine. Then you ask
 
 The client/SDK dropped the field before it reached the API — the providers are doing exactly what their docs say. The drop happens in SDK serializers and client transforms.
 
-> **Deprecated:** the historical symptom of this drop — `HTTP 400: The reasoning_content in the thinking mode must be passed back to the API` — is **resolved** by this fix. This repo is about the drop itself, not the error it used to cause. (DeepSeek's current V4 API no longer rejects a missing field either — controls D and E in `proof/curl-control-results.txt` returned 200 on both `deepseek-v4-flash` and `deepseek-v4-pro`.) The one live-verified 400 that still exists: the OpenCode Go gateway rejects `reasoning` on glm-5.2 while accepting `reasoning_content`.
+> **Deprecated:** the historical symptom of this drop — `HTTP 400: The reasoning_content in the thinking mode must be passed back to the API` — is **resolved** by this fix. This repo is about the drop itself, not the error it used to cause.
 
 DeepSeek V4 (and Kimi K2.7, GLM 5.x, MiMo V2.5) require that `reasoning_content` from every prior assistant turn gets included in subsequent API requests. The [docs](https://api-docs.deepseek.com/guides/thinking_mode) describe the contract, and the strictness varies by provider and endpoint: some reject the request, some ignore the field, and the conversation still loses its context either way. All five providers confirm the passback requirement in their official documentation:
 
@@ -252,7 +279,19 @@ Drop the plugin file in your OpenCode plugins directory and restart:
 ```bash
 mkdir -p ~/.config/opencode/plugins
 cp plugins/opencode-thinking-fix-universal.ts ~/.config/opencode/plugins/
+# Manual V1 copies also need the shared plugin package (npm installs and V2 hosts provide it):
+cd ~/.config/opencode && npm i @opencode/plugin
 ```
+
+For the V2 API, add the package to `plugins` instead of `plugin`:
+
+```jsonc
+{
+  "plugins": ["opencode-thinking-fix"]
+}
+```
+
+The same package supports both APIs from one default export. V2 reads `setup()`; V1 (>= 1.18.29) reads `server()`.
 
 It scans outgoing messages for any assistant turn that already has `reasoning_content`. If it finds one (meaning you are using a reasoning model), it adds `reasoning_content: ""` to every assistant turn missing it. If it finds nothing (Qwen, GPT, Claude, they never produce this field), it does nothing.
 
@@ -425,6 +464,8 @@ The proxy auto-routes by model name prefix. All routes:
 | `glm`, `zhipu` | `https://open.bigmodel.cn/api/paas/v4` | Yes (`reasoning_content`) |
 | `minimax` | `https://api.minimax.io/v1` | Yes (`reasoning_details`, `reasoning_split:true`) |
 | `mimo` | `https://api.xiaomimimo.com/v1` | Yes (`reasoning_content`) |
+| `inclusionai/ling-3.0-flash` (and `:free`) | `https://openrouter.ai/api/v1` | Yes — OR normalizes to `delta.reasoning` + `delta.reasoning_details`; passback as `reasoning_content` is honored |
+| `opencode/ling-3.0-flash-fin-free` | `https://opencode.ai/zen/v1` | Yes (`reasoning_content`) |
 | `gpt`, `o1` | `https://api.openai.com` | No |
 | `claude`, `anthropic` | `https://api.anthropic.com` | No |
 | `qwen` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | No |
@@ -562,7 +603,7 @@ proof/                                  # evidence: captures, controls, CSVs, re
 | **macOS** | ✅ | ✅ | ✅ (bash) | ❌ (use launchd) |
 | **Windows** | ✅ | ✅ | ❌ (bash) | ❌ |
 
-OpenCode v1.17.9+, DeepSeek V4 Pro, Kimi K2.5/K2.6/K2.7, GLM-5.x, MiMo V2.5, MiniMax-M3, OpenCode Go.
+OpenCode v1.17.9+ (V1 plugin), OpenCode v2.0+ (V2 plugin), DeepSeek V4 Pro, Kimi K2.5/K2.6/K2.7, GLM-5.x, MiMo V2.5, MiniMax-M3, OpenCode Go.
 
 ### Windows notes
 

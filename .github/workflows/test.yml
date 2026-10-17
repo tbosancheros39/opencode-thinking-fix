@@ -24,7 +24,7 @@ jobs:
       - name: Run proxy test suite
         run: node tests/test-proxy.js
       - name: Run plugin test suite
-        run: node tests/test-plugin.js
+        run: node tests/test-plugin.js && node tests/test-plugin-v2.js
 
   publish-npm:
     needs: validate

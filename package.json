@@ -1,7 +1,7 @@
 {
   "name": "opencode-thinking-fix",
-  "version": "3.3.4",
-  "description": "Restores reasoning content dropped from multi-turn OpenCode conversations (DeepSeek, Kimi, GLM, MiMo, MiniMax, OpenCode Go, OpenRouter). Plugin + proxy + watchdog.",
+  "version": "4.0.0",
+  "description": "Restores reasoning content dropped from multi-turn OpenCode conversations (DeepSeek, Kimi, GLM, MiMo, MiniMax, InclusionAI/Ling, OpenCode Go, OpenRouter). V1 + V2 plugin, proxy, and watchdog.",
   "type": "module",
   "license": "MIT",
   "oc-plugin": [
@@ -20,6 +20,8 @@
     "zhipu",
     "mimo",
     "minimax",
+    "inclusionai",
+    "ling-3.0-flash",
     "openrouter",
     "xiaomi-mimo",
     "reasoning-content",
@@ -73,15 +75,12 @@
     "LICENSE.md"
   ],
   "dependencies": {
+    "@opencode/plugin": "^2.0.32",
     "eventsource-parser": "^3.1.0"
   },
-  "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.3.0"
-  },
-  "peerDependenciesMeta": {
-    "@opencode-ai/plugin": {
-      "optional": false
-    }
+  "scripts": {
+    "test": "node tests/test-plugin.js && node tests/test-plugin-v2.js && node tests/test-proxy.js",
+    "typecheck": "tsc --noEmit"
   },
   "engines": {
     "node": ">=18"

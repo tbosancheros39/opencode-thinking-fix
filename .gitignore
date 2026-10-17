@@ -94,3 +94,8 @@ Thumbs.db
 !/proof/
 !/proof/**
 proof/**/*.md
+
+# New capture/log artifacts under proof/ must be added explicitly.
+# Existing tracked evidence is unaffected; new untracked captures stay local.
+proof/**/*.jsonl
+proof/**/*.log

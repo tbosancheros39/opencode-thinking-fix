@@ -88,6 +88,24 @@ export const ROUTES = {
   'opencode/deepseek-v4-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'opencode/nemotron-3-ultra-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'opencode/nemotron-3.5-lightning-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  // F19 (2026-09-03): InclusionAI Ling 3.0 Flash — Chinese MoE reasoning model
+  // (124B/5.1B active, 262K ctx). Primary distribution is OpenRouter
+  // (`inclusionai/ling-3.0-flash` paid, `:free` free tier). On OR the response
+  // wire uses `delta.reasoning` (string) + `delta.reasoning_details` (array
+  // of `reasoning.text` items with `format: "unknown"`); OR also accepts
+  // `reasoning_content` as an input alias and normalizes on outbound to the
+  // upstream (Novita, DeepInfra). Native ant-ling.com uses
+  // `thinking.type: enabled|disabled`; not routed here (no client key).
+  'inclusionai/ling-3.0-flash': { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' },
+  'inclusionai/ling-3.0-flash:free': { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' },
+  // Zen free-tier lane: `opencode/ling-3.0-flash-fin-free` is served by the
+  // OpenCode Zen gateway at zen/v1 (chat/completions wire, DeepSeek-style
+  // `reasoning_content` carrier). Add the prefixed form here so 3457 model-
+  // routing sends it to Zen, not the default DeepSeek fallback.
+  'opencode/ling-3.0-flash-fin-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  // Catch-all for future InclusionAI variants (Ling-2.x, Ring-2.6-1T, etc.)
+  // that may be added to OpenRouter before this proxy gets a per-model entry.
+  'inclusionai': { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' },
 }
 
 export const DEFAULT_ROUTE = { base: 'https://api.deepseek.com', reasoningKey: null }
@@ -357,4 +375,79 @@ export function createStreamParser(sessionId, baseIndex, onComplete) {
       if (reasoningBuffer) { onComplete(baseIndex, reasoningBuffer); reasoningBuffer = '' }
     },
   }
+}
+
+// F12 (2026-09-01): provider-specific request-body injections applied before
+// forwarding. Currently a single rule: Z.ai preserved-thinking opt-in. Future
+// F-tags (per-provider `thinking.keep`, sampling-constraint strips, etc.) can
+// be added here without growing the patchRequestBody signature.
+//
+// Z.ai `clear_thinking` is the server-side opt-in for Preserved Thinking on
+// the standard Z.ai Chat Completions endpoint. Default is `true` on the
+// standard API, `false` on the Coding Plan endpoint. With `true`, the server
+// strips prior reasoning_content from context even when the client passes it
+// back — which silently degrades multi-turn GLM sessions to "re-derive from
+// scratch every turn, loop, burn tokens". The OpenCode Go gateway and
+// OpenRouter do NOT change this default on the user's behalf; the client must
+// opt in.
+//
+// Docs:
+//   https://docs.z.ai/guides/capabilities/thinking-mode
+//     "This capability is enabled by default on the Coding Plan endpoint and
+//      disabled by default on the standard API endpoint. If you want to enable
+//      Preserved Thinking in your product … you can turn it on for the API
+//      endpoint by setting clear_thinking: false, and you must return the
+//      complete, unmodified reasoning_content back to the API."
+//   https://docs.z.ai/api-reference/llm/chat-completion
+//     thinking.clear_thinking — type boolean, default true.
+//
+// Z.ai-reachable hosts (allowlist, conservative):
+//   - open.bigmodel.cn       (BigModel direct, port 3457 universal mode)
+//   - api.z.ai               (Z.ai international, future-proofing)
+//   - opencode.ai/zen/go     (OpenCode Go gateway, port 3458)
+//   - openrouter.ai          (OpenRouter, port 3462; routes GLM to Z.ai under the hood)
+function isZAiReachableBase(base) {
+  if (!base || typeof base !== 'string') return false
+  let host, path
+  try { const u = new URL(base); host = u.hostname.toLowerCase(); path = u.pathname.toLowerCase() } catch { return false }
+  if (host === 'open.bigmodel.cn') return true
+  if (host === 'api.z.ai') return true
+  if (host === 'opencode.ai' && path.startsWith('/zen/go')) return true
+  if (host === 'openrouter.ai') return true
+  return false
+}
+
+export function applyProviderBodyInjections(modelName, body, routeTarget) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { body, modified: false, injections: [] }
+  const injections = []
+  let modified = false
+  const lower = (modelName || '').toLowerCase()
+  const base = (routeTarget && routeTarget.base) || ''
+
+  // F12: GLM / Zhipu on any Z.ai-reachable lane — opt in to Preserved Thinking
+  // so the server keeps prior reasoning_content across turns instead of
+  // silently stripping it. Skipped when the client explicitly disabled
+  // thinking (forcing preserved thinking on top of disabled thinking would be
+  // incoherent). The merge is idempotent: a client-supplied thinking.type is
+  // preserved alongside the injected clear_thinking:false.
+  //
+  // Model-name detection accepts both bare names (glm-5.2, zhipu-glm-5) and
+  // gateway-prefixed slugs (z-ai/glm-5.2, zhipu/glm-4.5, opencode-go/glm-5.2).
+  // The "/glm" or "/zhipu" path-segment check catches the prefixed slugs that
+  // don't start with the bare name.
+  const isZAiModel = lower.startsWith('glm')
+    || lower.startsWith('zhipu')
+    || lower.includes('/glm')
+    || lower.includes('/zhipu')
+  if (isZAiModel && isZAiReachableBase(base)) {
+    if (body.thinking !== false) {
+      const before = body.thinking
+      const preserved = before && typeof before === 'object' && !Array.isArray(before) ? before : {}
+      body.thinking = { ...preserved, clear_thinking: false }
+      if (before !== body.thinking) modified = true
+      injections.push({ tag: 'F12', field: 'thinking.clear_thinking', value: false })
+    }
+  }
+
+  return { body, modified, injections }
 }

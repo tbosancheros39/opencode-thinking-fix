@@ -8,7 +8,7 @@ Reasoning models emit chain-of-thought in provider-specific fields (`reasoning_c
 
 ## Solution, Three Independent Layers
 
-1. **Plugin** (`opencode-thinking-fix-universal.ts`): self-detection guard that injects `reasoning_content: ""` into assistant messages to prevent 400s. Works even if proxy is down.
+1. **Plugin** (`opencode-thinking-fix-universal.ts`): dual V1/V2 entrypoint. V1 injects `reasoning_content: ""` / `reasoning: ""` into assistant messages; V2 injects `native.openaiCompatible.reasoning_content` on the `context` hook. Works even if the proxy is down.
 2. **Proxy** (`proxy.js`): intercepts API traffic, caches real reasoning from SSE streams, injects it back on subsequent turns. One runtime dependency (`eventsource-parser`).
 3. **Watchdog** (`watchdog.sh`): checks proxy health every 4 minutes, restarts if down.
 
@@ -39,7 +39,7 @@ Reasoning models emit chain-of-thought in provider-specific fields (`reasoning_c
 ## Prerequisites
 
 - Node.js (any recent version, proxy uses `eventsource-parser` as its only dep)
-- OpenCode v1.17.9+ (for plugin `.ts` compilation support)
+- OpenCode v1.17.9+ (V1 plugin) or v2.0+ (V2 plugin, `@opencode/plugin`)
 - For direct providers: valid API keys in environment (`DEEPSEEK_API_KEY`, etc.)
 - For OpenCode Go: `OPENCODE_GO_API_KEY` or `~/.local/share/opencode/auth.json`
 - systemd user services (optional, requires D-Bus user session)
@@ -52,9 +52,13 @@ Reasoning models emit chain-of-thought in provider-specific fields (`reasoning_c
 ```bash
 mkdir -p ~/.config/opencode/plugins
 cp plugins/opencode-thinking-fix-universal.ts ~/.config/opencode/plugins/
+# Manual V1 copies need the shared plugin package; npm installs and V2 hosts provide it.
+cd ~/.config/opencode && npm i @opencode/plugin
 ```
 
 Plugin auto-loads from `~/.config/opencode/plugins/`. No `opencode.json` config needed. OpenCode compiles `.ts` at startup.
+
+V2: add the npm package to `plugins` in `opencode.json(c)` (`{"plugins": ["opencode-thinking-fix"]}`); the default export provides `setup()`.
 
 ### Step 2: Install and Start the Proxy
 
@@ -225,6 +229,28 @@ node ~/reasoning-cache-proxy/test-proxy.js   # 95/95 should pass
 - Non-streaming responses: piped directly without parsing.
 - Health check: `GET /health` returns `{"ok":true,"uptime":N}`.
 
+## F12 — Z.ai Preserved Thinking (provider body injection, 2026-09-01)
+
+Implemented in `proxy/core.js` as `applyProviderBodyInjections(modelName, body, routeTarget)`, called from `proxy.js` next to F9 (Kimi sampling-params) and F10 (MiniMax `reasoning_split`).
+
+- **Rule.** If the model name starts with `glm` or `zhipu` AND `routeTarget.base` matches a Z.ai-reachable host allowlist, inject `body.thinking = { ...body.thinking, clear_thinking: false }`.
+- **Allowlist** (in `isZAiReachableBase`): `open.bigmodel.cn` (BigModel direct, port 3457), `api.z.ai` (Z.ai intl, forward-compat), `opencode.ai/zen/go*` (Go gateway, port 3458), `openrouter.ai` (port 3462). Anything else → no injection.
+- **Skip conditions.** (a) `body.thinking === false` (client explicitly disabled thinking — incoherent to force preserved thinking on top). (b) `body` is null/array. (c) `routeTarget` is null. (d) `modelName` is empty.
+- **Return shape.** `{ body, modified, injections: [{ tag, field, value }] }`. `proxy.js` logs each injection via `writeLog({ event: 'provider_injection', ... })`.
+- **Docs authority.** `https://docs.z.ai/guides/capabilities/thinking-mode` (Preserved Thinking section) and `https://docs.z.ai/api-reference/llm/chat-completion` (`thinking.clear_thinking`, default `true`).
+- **Distinction from F9/F10.** F9 and F10 are gated by `!UPSTREAM_URL` (port 3457 only). F12 is **not** — Preserved Thinking is a Z.ai contract, not a port-3457 behavior. The host allowlist replaces the `!UPSTREAM_URL` gate.
+
+## F19 — InclusionAI Ling 3.0 Flash route (2026-09-03)
+
+Implemented in `proxy/core.js` `ROUTES` as three new entries. No code change to the proxy logic — only the route table.
+
+- **Rule.** Models starting with `inclusionai/ling-3.0-flash` (with or without `:free` suffix) resolve to `https://openrouter.ai/api/v1` with `reasoningKey: 'reasoning_content'`. The prefixed form `opencode/ling-3.0-flash-fin-free` resolves to the existing OpenCode Zen free-tier lane (`https://opencode.ai/zen/v1`) — without this entry the prefixed id would fall through to the DeepSeek default and fail.
+- **OpenRouter response shape.** `choices[0].message.reasoning` (string) + `choices[0].message.reasoning_details` (array of `{type: "reasoning.text", text, format: "unknown", index}`). OpenRouter accepts `reasoning_content` as an input alias of `reasoning` on messages and normalizes on outbound to the upstream (Novita, DeepInfra). The passback key `reasoning_content` is what the proxy stores and re-injects; the response field the proxy caches is `delta.reasoning` (and `delta.reasoning_details` for the array form).
+- **Skip conditions.** None — these routes are unconditionally active. Non-reasoning models (`gpt`, `claude`, etc.) are not affected because the route only fires when the model name starts with `inclusionai/ling-3.0-flash`.
+- **Live verification.** Two-turn reasoning-continuity test on port 3457: turn 1 emitted 271 chars of reasoning on a 7×6 step-by-step; turn 2 (with cached `reasoning_content` echoed back) referenced the prior step ("The user previously asked for 7 times 6, and I was in the process of showing step-by-step work. The result of 7 × 6 is 42.") and continued to 42+5=47. Upstream was Novita.
+- **Docs authority.** `https://openrouter.ai/inclusionai/ling-3.0-flash` (model page, $0.021/M input, $0.063/M output, 262K context); `https://ant-ling.com/en/docs/api-reference/openai/` (native ant-ling OpenAI-compatible API with `thinking.type: enabled|disabled` and `reasoning.effort: high|xhigh`); `https://huggingface.co/inclusionAI/Ling-3.0-flash` (model card, `ling3` reasoning parser default, `chat_template_kwargs: {"enable_thinking": false}` to disable); `https://github.com/inclusionAI` (org page; `vllm-ling-v3` for self-host); `https://arxiv.org/abs/2606.15079` (Ling/Ring 2.6 technical report).
+- **Distinction from F12.** F12 injects `body.thinking.clear_thinking: false` (host-allowlisted Z.ai contract). F19 adds three lines to the route table; it does not modify request bodies, only chooses upstream and passback key.
+
 ## Model Routing Table (Port 3457)
 
 | Prefix | Upstream | Reasoning |
@@ -238,6 +264,7 @@ node ~/reasoning-cache-proxy/test-proxy.js   # 95/95 should pass
 | `glm`, `zhipu` | `https://open.bigmodel.cn/api/paas/v4` | Yes |
 | `minimax` | `https://api.minimax.io/v1` | Yes (`reasoning_details`) |
 | `mimo` | `https://api.xiaomimimo.com/v1` | Yes (`reasoning_content`) |
+| `inclusionai/ling-3.0-flash` (and `:free`) | `https://openrouter.ai/api/v1` | Yes — OR normalizes to `delta.reasoning` + `delta.reasoning_details`; passback as `reasoning_content` is honored (F19) |
 | `gpt`, `o1` | `https://api.openai.com` | No |
 | `claude`, `anthropic` | `https://api.anthropic.com` | No |
 | `qwen` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | No |
@@ -261,10 +288,11 @@ node ~/reasoning-cache-proxy/test-proxy.js   # 95/95 should pass
 1. `patchRequestBody` returns `{ body, assistantCount, modified, report }`; `report.turns[].fields` is ALWAYS an array. `proxy.js` consumes the report (`assistantTurns`/`missingText`/`missingReasoning`/`turns.reduce`). Never drop or reshape it.
 2. `reasoningKey` semantics: `'strip'` = R1 only (delete reasoning fields, never cache); `null` = true passthrough (Qwen/GPT/Claude/unknown — never strip, never fabricate); other strings = cache + inject that field only.
 3. Raw-byte SSE forwarding; the parser is a side channel, never re-serialize. Lazy patching: untouched body when reasoning already present.
-4. Go mode never consults `ROUTES`: `/messages` + (minimax|qwen) → `'anthropic'`; glm-5.2 on `/chat/completions` → `'reasoning_content'`; `REASONING_KEY` env (when set) overrides to that key; else `'reasoning'`. Kimi strip / `reasoning_split` are 3457-only (`!UPSTREAM_URL`).
+4. Go mode never consults `ROUTES`: `/messages` + (minimax|qwen) → `'anthropic'`; glm-5.2 on `/chat/completions` → `'reasoning_content'`; `REASONING_KEY` env (when set) overrides to that key; else `'reasoning'`. Kimi strip / `reasoning_split` are 3457-only (`!UPSTREAM_URL`); F12 Z.ai Preserved Thinking is **all** Z.ai-reachable lanes (host-allowlisted, not port-gated).
 5. Logging: proxy = console→journal (DEBUG-gated) + `writeLog` JSONL (ungated); plugin keeps its own `writeLog`. No winston/pino. systemd units stay `Type=simple`/journal/`%h`.
 6. Git: agents never run git commit/push/add/checkout. Working tree only; human publishes via branch + squash merge.
 7. Upstream path handling (`upstreamPathFor` in core.js): if the client URL already starts with the upstream's official base path (e.g. OpenRouter `/api/v1`), forward as-is; never double the prefix.
+8. F19 (2026-09-03) routes are port-3457-only and pure ROUTES entries: `inclusionai/ling-3.0-flash` and `inclusionai/ling-3.0-flash:free` → `https://openrouter.ai/api/v1` with `reasoningKey: 'reasoning_content'` (OR normalizes on outbound); `opencode/ling-3.0-flash-fin-free` → `https://opencode.ai/zen/v1` with `reasoningKey: 'reasoning_content'`. No body injection, no SSE-parser change, no plugin change. Distinction from F12: F19 is **route-only**; F12 is **body-injection** under a host allowlist.
 
 ## Troubleshooting
 

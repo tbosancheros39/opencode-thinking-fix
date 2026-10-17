@@ -23,6 +23,7 @@ import {
   extractReasoningFromJson,
   createStreamParser,
   upstreamPathFor,
+  applyProviderBodyInjections,
 } from '../proxy/core.js'
 
 // ── Test harness ────────────────────────────────────────────────────────────
@@ -429,6 +430,220 @@ resetState()
   const skipped = sm.set(1, oversized)
   ok(skipped === false, 'B2. set() returns false on oversized value')
   eq(sm.get(1), undefined, 'B2b. oversized value NOT stored (skip, not truncate)')
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// F12: applyProviderBodyInjections — Z.ai clear_thinking:false
+// ═════════════════════════════════════════════════════════════════════════
+console.log('\n=== F12 provider body injection (Z.ai clear_thinking) tests ===\n')
+
+// F12-1: glm-5.2 on BigModel direct (port 3457 universal) — injects.
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('glm-5.2', bj, { base: 'https://open.bigmodel.cn/api/paas/v4', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-1. glm-5.2 on bigmodel.modified = true')
+  eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-1b. thinking.clear_thinking = false')
+  eq(r.injections.length, 1, 'F12-1c. one injection recorded')
+  eq(r.injections[0].tag, 'F12', 'F12-1d. injection tag is F12')
+}
+
+// F12-2: glm-5.2 on OpenCode Go gateway (port 3458) — injects.
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('glm-5.2', bj, { base: 'https://opencode.ai/zen/go/v1', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-2. glm-5.2 on Go gateway.modified = true')
+  eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-2b. thinking.clear_thinking = false on Go')
+}
+
+// F12-3: glm-5.2 on OpenRouter (port 3462) — injects.
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('glm-5.2', bj, { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-3. glm-5.2 on OpenRouter.modified = true')
+  eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-3b. thinking.clear_thinking = false on OpenRouter')
+}
+
+// F12-4: zhipu prefix also triggers F12.
+{
+  const bj = { model: 'zhipu-glm-5', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('zhipu-glm-5', bj, { base: 'https://open.bigmodel.cn/api/paas/v4', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-4. zhipu prefix on bigmodel.modified = true')
+  eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-4b. zhipu also opts in to clear_thinking:false')
+}
+
+// F12-5: deepseek on a Z.ai-reachable host does NOT trigger F12.
+{
+  const bj = { model: 'deepseek-v4-pro', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('deepseek-v4-pro', bj, { base: 'https://open.bigmodel.cn/api/paas/v4', reasoningKey: 'reasoning_content' })
+  ok(r.modified === false, 'F12-5. deepseek on bigmodel.modified = false (model prefix mismatch)')
+  ok(!bj.thinking, 'F12-5b. no thinking field injected for deepseek')
+  eq(r.injections.length, 0, 'F12-5c. zero injections')
+}
+
+// F12-6: glm-5.2 on a non-Z.ai host (api.deepseek.com) does NOT trigger F12.
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('glm-5.2', bj, { base: 'https://api.deepseek.com', reasoningKey: 'reasoning_content' })
+  ok(r.modified === false, 'F12-6. glm-5.2 on deepseek host.modified = false (host allowlist blocks)')
+  ok(!bj.thinking, 'F12-6b. no thinking field injected for non-Z.ai host')
+}
+
+// F12-7: client explicitly disabled thinking (thinking: false) — F12 skips.
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }], thinking: false }
+  const r = applyProviderBodyInjections('glm-5.2', bj, { base: 'https://open.bigmodel.cn/api/paas/v4', reasoningKey: 'reasoning_content' })
+  ok(r.modified === false, 'F12-7. client-set thinking:false.modified = false (F12 skipped)')
+  eq(bj.thinking, false, 'F12-7b. thinking:false preserved, not overwritten')
+  eq(r.injections.length, 0, 'F12-7c. zero injections when client disabled thinking')
+}
+
+// F12-8: client supplied thinking.type — F12 merges idempotently.
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }], thinking: { type: 'enabled' } }
+  const r = applyProviderBodyInjections('glm-5.2', bj, { base: 'https://open.bigmodel.cn/api/paas/v4', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-8. merge with client thinking.modified = true')
+  eq(bj.thinking.type, 'enabled', 'F12-8b. client thinking.type preserved')
+  eq(bj.thinking.clear_thinking, false, 'F12-8c. F12 added clear_thinking:false alongside')
+}
+
+// F12-9: body with no model name — F12 skipped (defensive).
+{
+  const bj = { messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('', bj, { base: 'https://open.bigmodel.cn/api/paas/v4', reasoningKey: 'reasoning_content' })
+  ok(r.modified === false, 'F12-9. empty model name.modified = false')
+  ok(!bj.thinking, 'F12-9b. no thinking field injected for empty model name')
+}
+
+// F12-10: null body — F12 returns the same shape without crashing.
+{
+  const r = applyProviderBodyInjections('glm-5.2', null, { base: 'https://open.bigmodel.cn/api/paas/v4', reasoningKey: 'reasoning_content' })
+  ok(r.modified === false, 'F12-10. null body.modified = false')
+  eq(r.injections.length, 0, 'F12-10b. zero injections on null body')
+}
+
+// F12-11: routeTarget.base is empty (defensive) — F12 skipped.
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('glm-5.2', bj, { base: '', reasoningKey: 'reasoning_content' })
+  ok(r.modified === false, 'F12-11. empty base.modified = false (host allowlist misses)')
+  ok(!bj.thinking, 'F12-11b. no thinking field injected for empty base')
+}
+
+// F12-12: routeTarget is null — F12 skipped.
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('glm-5.2', bj, null)
+  ok(r.modified === false, 'F12-12. null routeTarget.modified = false')
+}
+
+// F12-13: api.z.ai (international Z.ai direct) — F12 injects (forward-compat).
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('glm-5.2', bj, { base: 'https://api.z.ai/api/paas/v4', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-13. glm-5.2 on api.z.ai.modified = true (forward-compat)')
+  eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-13b. api.z.ai also gets clear_thinking:false')
+}
+
+// F12-14: opencode.ai but NOT /zen/go path — F12 skipped (different gateway).
+{
+  const bj = { model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('glm-5.2', bj, { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' })
+  ok(r.modified === false, 'F12-14. glm-5.2 on zen/v1 (not zen/go).modified = false (path allowlist blocks)')
+  ok(!bj.thinking, 'F12-14b. no thinking field injected on zen/v1')
+}
+
+// F12-15: OpenRouter-style slug z-ai/glm-5.2 — F12 fires (the user's actual config).
+{
+  const bj = { model: 'z-ai/glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('z-ai/glm-5.2', bj, { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-15. z-ai/glm-5.2 on OpenRouter.modified = true (gateway-prefixed slug)')
+  eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-15b. thinking.clear_thinking = false injected via OpenRouter-style slug')
+}
+
+// F12-16: zhipu/glm-4.5 slug — F12 fires.
+{
+  const bj = { model: 'zhipu/glm-4.5', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('zhipu/glm-4.5', bj, { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-16. zhipu/glm-4.5 on OpenRouter.modified = true')
+  eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-16b. thinking.clear_thinking = false injected')
+}
+
+// F12-17: opencode-go/glm-5.2 slug on Go gateway — F12 fires.
+{
+  const bj = { model: 'opencode-go/glm-5.2', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('opencode-go/glm-5.2', bj, { base: 'https://opencode.ai/zen/go/v1', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-17. opencode-go/glm-5.2 on Go.modified = true')
+  eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-17b. thinking.clear_thinking = false injected on Go')
+}
+
+// F12-18: anthropic/glm-* or thudm/glm-* (any other gateway-prefixed glm) — F12 fires on Z.ai host.
+{
+  const bj = { model: 'anthropic/glm-5', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('anthropic/glm-5', bj, { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-18. anthropic/glm-5 on OpenRouter.modified = true (any /glm path-segment matches)')
+}
+
+// F12-19: non-GLM model with "glm" in the middle — F12 should NOT fire.
+// (Defensive: includes() with /glm is too loose if the model name has /glm
+// in a non-name segment. Verify the false-positive case is handled.)
+{
+  const bj = { model: 'some-glm-translator', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('some-glm-translator', bj, { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' })
+  // 'some-glm-translator' starts with 'some-', not 'glm' or 'zhipu', and has no '/glm' segment.
+  // So F12 should NOT fire.
+  ok(r.modified === false, 'F12-19. some-glm-translator.modified = false (no /glm segment, no glm prefix)')
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// F19: InclusionAI Ling 3.0 Flash — port 3457 ROUTES entries
+// ═════════════════════════════════════════════════════════════════════════
+console.log('\n=== F19 InclusionAI Ling 3.0 Flash route tests ===\n')
+
+// F19-1: inclusionai/ling-3.0-flash (paid) -> openrouter, reasoning_content
+{
+  const r = route('inclusionai/ling-3.0-flash')
+  eq(r.base, 'https://openrouter.ai/api/v1', 'F19-1. paid -> openrouter base')
+  eq(r.reasoningKey, 'reasoning_content', 'F19-1b. paid -> reasoning_content key')
+}
+
+// F19-2: inclusionai/ling-3.0-flash:free (free tier) -> openrouter, reasoning_content
+{
+  const r = route('inclusionai/ling-3.0-flash:free')
+  eq(r.base, 'https://openrouter.ai/api/v1', 'F19-2. :free -> openrouter base')
+  eq(r.reasoningKey, 'reasoning_content', 'F19-2b. :free -> reasoning_content key')
+}
+
+// F19-3: opencode/ling-3.0-flash-fin-free -> zen/v1 (NOT DeepSeek default)
+{
+  const r = route('opencode/ling-3.0-flash-fin-free')
+  eq(r.base, 'https://opencode.ai/zen/v1', 'F19-3. opencode/-fin-free -> zen/v1 (was DeepSeek default before F19)')
+  eq(r.reasoningKey, 'reasoning_content', 'F19-3b. opencode/-fin-free -> reasoning_content key')
+}
+
+// F19-4: bare ling-3.0-flash-fin-free (no prefix) still goes to zen/v1
+{
+  const r = route('ling-3.0-flash-fin-free')
+  eq(r.base, 'https://opencode.ai/zen/v1', 'F19-4. bare ling-3.0-flash-fin-free -> zen/v1 (unchanged by F19)')
+  eq(r.reasoningKey, 'reasoning_content', 'F19-4b. bare -> reasoning_content key')
+}
+
+// F19-5: a hypothetical paid inclusionai variant that does not start with
+// 'inclusionai/ling-3.0-flash' would NOT match the new F19 route — defensive.
+{
+  // generic 'inclusionai' prefix exists too (added for future variants)
+  const r = route('inclusionai/ling-2.6-flash')
+  eq(r.base, 'https://openrouter.ai/api/v1', 'F19-5. future inclusionai/* variant -> openrouter (catch-all prefix)')
+  eq(r.reasoningKey, 'reasoning_content', 'F19-5b. future variant -> reasoning_content key')
+}
+
+// F19-6: distinguish from a non-inclusionai model that happens to contain 'ling'
+// (e.g. a custom 'blings-v2'). Defensive: only the inclusionai/ and
+// opencode/ling-3.0-flash-fin-free prefixes match.
+{
+  // 'something/blings-v2' does NOT start with 'inclusionai' and does not match
+  // any zen free-tier entry. Falls through to DEFAULT_ROUTE (DeepSeek, null).
+  const r = route('something/blings-v2')
+  eq(r, DEFAULT_ROUTE, 'F19-6. non-inclusionai "blings-v2" -> DEFAULT_ROUTE (no false positive)')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

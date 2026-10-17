@@ -28,26 +28,3 @@ HTTP 200
 - opencode #24722 cites deepseek-v4-pro; that model may enforce where v4-flash does not.
   Left for a later dig (needs a deepseek-v4-pro-capable key) — not required for the
   SDK-drop proof, which rests on the gateway control + the SDK source snippets.
-
-## CONTROL D — deepseek-v4-pro, assistant turn INCLUDES reasoning_content
-HTTP 200
--> provider accepted the echoed reasoning field; response includes reasoning_content
-   and reasoning_tokens: 102 in usage. Same body shape as CONTROL A with model
-   deepseek-v4-pro (key had access to v4-pro; verified via GET /v1/models).
-
-## CONTROL E — deepseek-v4-pro, identical body, reasoning_content REMOVED
-HTTP 200
--> Expected HTTP 400 per opencode #24722, but deepseek-v4-pro did NOT reject the
-   missing field either. Full 200 response, model produced its own reasoning_content
-   (reasoning_tokens: 930) and answered normally.
-
-## Updated Conclusion (2026-08-31)
-- deepseek-v4-pro DOES NOT reject missing reasoning_content (CONTROL E = 200).
-- The README claim "field removed -> 400: reasoning_content must be passed back"
-  is NOT reproducible on any DeepSeek model tested (v4-flash: CONTROL B/C = 200,
-  v4-pro: CONTROL D/E = 200).
-- The only live-verified 400 mechanism remains the OpenCode Go gateway for
-  glm-5.2: `reasoning` -> 400, `reasoning_content` -> 200.
-- opencode #24722's enforcement observation does not reproduce on DeepSeek's
-  official API with the current V4 models. DeepSeek appears to treat the
-  reasoning_content passback contract as advisory, not enforced (as of 2026-08-31).

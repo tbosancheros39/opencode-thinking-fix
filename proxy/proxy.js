@@ -59,6 +59,7 @@ import url   from 'node:url'
 import {
   ROUTES, cache, stats, route, fixedUpstreamRoute, getSessionCache, patchRequestBody,
   extractReasoningFromJson, createStreamParser, writeLog, deriveSessionId, upstreamPathFor,
+  applyProviderBodyInjections,
 } from './core.js'
 
 const PORT            = parseInt(process.env.PORT || '3457', 10)
@@ -150,6 +151,21 @@ const server = http.createServer((req, res) => {
         // MiniMax: keep thinking separate from content.
         // F10: same mode gate — only inject reasoning_split in routing mode.
         if (!UPSTREAM_URL && lower.startsWith('minimax')) bj.reasoning_split = true
+
+        // F12 (2026-09-01): provider-specific request-body injections.
+        // Currently a single rule: Z.ai clear_thinking:false on any Z.ai-reachable
+        // lane (3457 direct, 3458 Go, 3462 OpenRouter). Unlike F9/F10 this is NOT
+        // gated by !UPSTREAM_URL — Preserved Thinking is the Z.ai contract, not a
+        // port-3457-specific behavior. The host allowlist inside
+        // applyProviderBodyInjections() keeps the rule conservative.
+        const providerInjections = applyProviderBodyInjections(modelName, bj, routeTarget)
+        for (const inj of providerInjections.injections) {
+          if (DEBUG) console.log(`[F12] ${modelName} -> ${inj.field}=${JSON.stringify(inj.value)} (host=${routeTarget.base || 'unknown'})`)
+        }
+        if (providerInjections.injections.length > 0) {
+          writeLog({ event: 'provider_injection', model: modelName, session: sessionId.slice(-8),
+            injections: providerInjections.injections, host: routeTarget.base || '' })
+        }
 
         const patched = patchRequestBody(JSON.stringify(bj), sessionId, routeTarget.reasoningKey)
         bodyToSend = Buffer.from(patched.body, 'utf8')

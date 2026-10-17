@@ -2,6 +2,21 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## 4.0.0 - 2026-10-17
+
+- **OpenCode V2 plugin API.** The package now depends on `@opencode/plugin` and default-exports `Plugin.define({ id: "opencode-thinking-fix", setup })`, so it can be installed from the V2 catalog. The V1 implementation is kept on the same default export as `server()` (OpenCode >= 1.18.29), and `ThinkingFixPlugin` remains a named export.
+- V2 hooks: `ctx.session.hook("model.request")` adds `x-session-id`; `ctx.session.hook("context")` injects the reasoning passback field on assistant turns via `native.openaiCompatible.reasoning_content`. V2's OpenAI Chat protocol maps that carrier to the model's configured reasoning field (`reasoning_content` or `reasoning`), and already emits an empty field natively for DeepSeek-required models.
+- `@opencode-ai/plugin` is no longer a peer dependency; the V1 hook shapes are typed locally so the package has no V1 runtime import.
+- Version is a major bump because the entrypoint shape changed. OpenCode 1.x users below 1.18.29 should stay on 3.x.
+
+## 3.4.1 - 2026-09-03 (unreleased)
+
+- **F19 — InclusionAI Ling 3.0 Flash route.** Three new entries in the port 3457 model-routing table: `inclusionai/ling-3.0-flash` and `inclusionai/ling-3.0-flash:free` (paid and free tiers on OpenRouter, with `reasoning_content` as the passback key — OpenRouter normalizes to `delta.reasoning` + `delta.reasoning_details` on the way out), and the prefixed form `opencode/ling-3.0-flash-fin-free` (which was previously falling through to the DeepSeek default route; now it goes to the OpenCode Zen free-tier lane at `zen/v1` like its bare-id twin). Ling 3.0 Flash is a 124B/5.1B-active MoE reasoning model (262K context, hybrid thinking by default) from InclusionAI / BAAI; primary distribution is OpenRouter (Novita + DeepInfra upstreams), with the OpenCode Zen free tier as a no-key alternative. Live-verified with a two-turn reasoning-continuity test: turn 1 emitted 271 chars of reasoning on a 7×6 step-by-step, turn 2 (with the cached `reasoning_content` echoed back) referenced the prior step ("The user previously asked for 7 times 6, and I was in the process of showing step-by-step work. The result of 7 × 6 is 42.") and continued to 42+5=47. No code change to the proxy logic itself — only the route table. Sources: `https://openrouter.ai/inclusionai/ling-3.0-flash` (model page), `https://ant-ling.com/en/docs/api-reference/openai/` (native ant-ling OpenAI-compatible API), `https://huggingface.co/inclusionAI/Ling-3.0-flash` (model card + `ling3` reasoning parser default), `https://github.com/inclusionAI` (org page), and `https://arxiv.org/abs/2606.15079` (Ling/Ring 2.6 technical report, agentic reasoning effort levels).
+
+## 3.4.0 - 2026-09-01
+
+- **F12 — Z.ai Preserved Thinking.** The proxy now injects `thinking.clear_thinking: false` on every Z.ai-reachable lane when the model starts with `glm` or `zhipu`. The Z.ai standard Chat Completions endpoint defaults `clear_thinking: true` and silently strips prior `reasoning_content` from context, which is why GLM sessions were looping with the proxy fully active. The injection is host-allowlisted (BigModel direct, OpenCode Go gateway, OpenRouter) and idempotently merged with any client-supplied `thinking` so client choices are preserved. Live-verified against the deployed `core.js` on all three lanes. Docs: `docs.z.ai/guides/capabilities/thinking-mode` (Preserved Thinking) and `docs.z.ai/api-reference/llm/chat-completion` (`thinking.clear_thinking`, default `true`).
+
 ## 3.3.4 - 2026-08-30
 
 - README evidence section reframed: the "See it happen in 5 minutes" anchor on a single free-tier model id is gone, replaced with a generic 4-step reproduction and a dataset-first section that leads with the 2.29M char / 1,968 drops / 22-OpenRouter-drops / 68% zero-model-change numbers. "The evidence" section kept for the SDK-is-innocent and switches.csv pointers so nothing is lost.
