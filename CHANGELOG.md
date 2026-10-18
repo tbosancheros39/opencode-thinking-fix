@@ -2,6 +2,14 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## 4.0.1 - 2026-10-18
+
+- **CI: the deprecated-action warning is gone.** `actions/checkout` and `actions/setup-node` moved from `@v4` — published against the Node 20 actions runtime, which GitHub-hosted runners now force onto Node 24 and warn about on every step — to `@v7`. The build and test jobs now run on Node 24 rather than 22, and all three jobs use the `npm` cache.
+- **Publishing is idempotent.** A re-run of a tag, or a version already pushed by hand, made `npm publish` fail with `E403 You cannot publish over the previously published versions` — which is exactly how the `v4.0.0` tag run went red while 4.0.0 was already on the registry. Both publish jobs now check `npm view <name>@<version>` first and exit successfully when the version is already out, so a re-run reports the truth instead of a false failure.
+- **Preflight failures name the real problem.** npm answers a missing or read-only token with a bare `404 Not Found - PUT`, which reads like a missing package. The npm job now checks that `NPM_TOKEN` is non-empty, that `npm whoami` authenticates, and that the tag matches `package.json`'s version before it publishes.
+- After publishing, the npm job downloads the tarball the registry actually serves and asserts `proxy/core.js`, the plugin entrypoint and `package.json` are inside it.
+- Workflow-level `permissions: contents: read`, `concurrency` (publishing is never cancelled half-way), pinned `ubuntu-24.04` runners and `workflow_dispatch` for re-publishing without a new commit.
+
 ## 4.0.0 - 2026-10-17
 
 - **OpenCode V2 plugin API.** The package now depends on `@opencode/plugin` and default-exports `Plugin.define({ id: "opencode-thinking-fix", setup })`, so it can be installed from the V2 catalog. The V1 implementation is kept on the same default export as `server()` (OpenCode >= 1.18.29), and `ThinkingFixPlugin` remains a named export.

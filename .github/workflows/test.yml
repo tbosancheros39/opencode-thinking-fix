@@ -1,19 +1,36 @@
 name: Validate and Publish
+
 on:
   push:
     branches: [master]
     tags: ['v*']
   pull_request:
     branches: [master]
+  # Re-run a publish without touching the tag and without adding a commit.
+  workflow_dispatch:
+
+# Least privilege by default; publish-github-packages re-adds `packages: write`.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Publishing must never be cancelled half-way; PR runs are safe to supersede.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '24'
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    name: validate
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
       - run: npm ci
       - name: Type check
         run: npx tsc --noEmit
@@ -27,37 +44,106 @@ jobs:
         run: node tests/test-plugin.js && node tests/test-plugin-v2.js
 
   publish-npm:
+    name: publish-npm
     needs: validate
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci
-      - run: npm publish
+      # npm answers a missing or read-only token with `404 Not Found - PUT`, which reads like a
+      # missing package. Check the token and the tag/version pairing here so the failure names
+      # the actual problem instead of pointing at the registry.
+      - name: Preflight — token, tag and version
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error title=NPM_TOKEN is empty::Add an npm token with read and write access to opencode-thinking-fix as the NPM_TOKEN repository secret."
+            exit 1
+          fi
+          version="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "::error title=Tag/version mismatch::Tag is v${tag} but package.json says ${version}. Bump one so the publish cannot land under the wrong number."
+            exit 1
+          fi
+          if ! who="$(npm whoami)"; then
+            echo "::error title=NPM_TOKEN rejected::npm whoami failed — the token is invalid, expired, or revoked."
+            exit 1
+          fi
+          echo "Authenticated as ${who}; package opencode-thinking-fix@${version}"
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          # npm refuses to publish over an existing version, so re-running a tag that is
+          # already out is a success, not a failure.
+          if npm view "opencode-thinking-fix@${version}" version >/dev/null 2>&1; then
+            echo "opencode-thinking-fix@${version} is already published — nothing to do (idempotent re-run)."
+            exit 0
+          fi
+          npm publish
+      - name: Verify the published tarball
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          npm pack "opencode-thinking-fix@${version}" --pack-destination "${RUNNER_TEMP}" >/dev/null
+          tar -tzf "${RUNNER_TEMP}/opencode-thinking-fix-${version}.tgz" | sort > "${RUNNER_TEMP}/published.txt"
+          cat "${RUNNER_TEMP}/published.txt"
+          for required in package/proxy/core.js package/plugins/opencode-thinking-fix-universal.ts package/package.json; do
+            grep -qx "${required}" "${RUNNER_TEMP}/published.txt" || {
+              echo "::error title=Incomplete npm tarball::${required} is missing from the published package."
+              exit 1
+            }
+          done
 
   publish-github-packages:
+    name: publish-github-packages
     needs: validate
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
           registry-url: 'https://npm.pkg.github.com'
           scope: '@tbosancheros39'
       - run: npm ci
       - name: Set scoped name for GitHub Packages
         run: npm pkg set name=@tbosancheros39/opencode-thinking-fix
-      - run: npm publish
+      - name: Preflight — tag and version
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "::error title=Tag/version mismatch::Tag is v${tag} but package.json says ${version}."
+            exit 1
+          fi
+      - name: Publish to GitHub Packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@tbosancheros39/opencode-thinking-fix@${version}" version >/dev/null 2>&1; then
+            echo "@tbosancheros39/opencode-thinking-fix@${version} is already published — nothing to do (idempotent re-run)."
+            exit 0
+          fi
+          npm publish
