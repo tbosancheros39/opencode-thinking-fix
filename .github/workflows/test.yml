@@ -98,6 +98,20 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
+          # The registry needs a moment before it serves a version that was just published.
+          # Packing immediately failed this step with ETARGET while the publish itself was
+          # fine, so wait for the version to become visible before unpacking it.
+          for attempt in $(seq 1 12); do
+            if npm view "opencode-thinking-fix@${version}" version >/dev/null 2>&1; then
+              echo "registry is serving ${version} (attempt ${attempt})"
+              break
+            fi
+            if [ "${attempt}" -eq 12 ]; then
+              echo "::error title=Version not visible on npm::opencode-thinking-fix@${version} did not appear within 60s of a successful publish."
+              exit 1
+            fi
+            sleep 5
+          done
           npm pack "opencode-thinking-fix@${version}" --pack-destination "${RUNNER_TEMP}" >/dev/null
           tar -tzf "${RUNNER_TEMP}/opencode-thinking-fix-${version}.tgz" | sort > "${RUNNER_TEMP}/published.txt"
           cat "${RUNNER_TEMP}/published.txt"
