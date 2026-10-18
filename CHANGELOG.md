@@ -2,6 +2,13 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## 4.0.2 - 2026-10-18
+
+- **Node 24 is the supported runtime.** `engines.node` is now `>=24` (was `>=18`) and `@types/node` moved from `^18` to `^24`, so the published package advertises the runtime it is actually built and tested against instead of one three majors behind.
+- **New Zen free-tier routes** in `proxy/core.js`: `step-5-preview-free`, `muse-spark-1.3-contributor-free`, `beam-free`, `deepseek-v4.1-flash-free`, `glm-5.3-flash-free`, `longcat-2.5-preview-free`, `mimo-v2.6-flash-free`, `nemotron-3.5-super-vl-free` and `space-bunny-free`, plus their `opencode/`-prefixed twins — all on the `zen/v1` lane with `reasoning_content` as the passback key.
+- **The watchdog drives systemd instead of spawning processes.** `watchdog/watchdog.sh` health-checks ports 3457/3458/3459/3462 and restarts the unit that owns the port, rather than `nohup node`-ing a second copy on top of a running service.
+- `proxy/proxy.cjs` — the CommonJS shim the installed systemd units execute — is now tracked in the repository.
+
 ## 4.0.1 - 2026-10-18
 
 - **CI: the deprecated-action warning is gone.** `actions/checkout` and `actions/setup-node` moved from `@v4` — published against the Node 20 actions runtime, which GitHub-hosted runners now force onto Node 24 and warn about on every step — to `@v7`. The build and test jobs now run on Node 24 rather than 22, and all three jobs use the `npm` cache.
