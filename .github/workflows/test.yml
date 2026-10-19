@@ -93,6 +93,10 @@ jobs:
       - name: Remove stray probecheck dist-tag (one-off — delete this step once done)
         run: |
           set -euo pipefail
+          # setup-node writes `:_authToken=${NODE_AUTH_TOKEN}` which resolves to an empty
+          # string once the token secret is gone; that empty bearer breaks even public
+          # reads. Drop it so npm falls back to the OIDC exchange for the write.
+          npm config delete "//registry.npmjs.org/:_authToken" || true
           if npm dist-tag ls opencode-thinking-fix | grep -q '^probecheck:'; then
             npm dist-tag rm opencode-thinking-fix probecheck
           else
