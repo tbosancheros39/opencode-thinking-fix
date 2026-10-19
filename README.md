@@ -4,7 +4,7 @@
 [![Test](https://github.com/tbosancheros39/opencode-thinking-fix/actions/workflows/test.yml/badge.svg)](https://github.com/tbosancheros39/opencode-thinking-fix/actions/workflows/test.yml)
 [![npm downloads](https://img.shields.io/npm/dm/opencode-thinking-fix)](https://www.npmjs.com/package/opencode-thinking-fix)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/tbosancheros39/opencode-thinking-fix/blob/master/LICENSE.md)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24-brightgreen)](https://nodejs.org/)
 
 ```bash
 npm install opencode-thinking-fix
