@@ -92,7 +92,7 @@ Open PowerShell and install Node.js LTS if it is not already installed:
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
-node --version   # Node 18 or newer
+node --version   # Node 24 or newer
 npm --version
 ```
 
