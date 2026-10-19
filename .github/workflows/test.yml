@@ -95,8 +95,26 @@ jobs:
           set -euo pipefail
           # setup-node writes `:_authToken=${NODE_AUTH_TOKEN}` which resolves to an empty
           # string once the token secret is gone; that empty bearer breaks even public
-          # reads. Drop it so npm falls back to the OIDC exchange for the write.
+          # reads. Drop it so nothing stale is sent.
           npm config delete "//registry.npmjs.org/:_authToken" || true
+          # npm's OIDC exchange only covers `publish` (lib/utils/oidc.js is called from
+          # publish.js alone), so replicate the exchange manually for the dist-tag write:
+          # mint the workflow identity JWT, swap it for a short-lived registry token,
+          # and use it for the dist-tag command. The token is never printed.
+          node - <<'EOF'
+          const fs = require('fs')
+          const main = async () => {
+            const aud = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL)
+            aud.searchParams.append('audience', 'npm:registry.npmjs.org')
+            const id = await (await fetch(aud, { headers: { Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` } })).json()
+            if (!id.value) throw new Error('no OIDC id_token returned by GitHub')
+            const ex = await fetch('https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/opencode-thinking-fix', { method: 'POST', headers: { Authorization: `Bearer ${id.value}` } })
+            const body = await ex.json()
+            if (!ex.ok || !body.token) throw new Error(`token exchange failed: ${ex.status} ${JSON.stringify(body)}`)
+            fs.appendFileSync(process.env.NPM_CONFIG_USERCONFIG, `//registry.npmjs.org/:_authToken=${body.token}\n`)
+          }
+          main().catch(e => { console.error(e.message); process.exit(1) })
+          EOF
           if npm dist-tag ls opencode-thinking-fix | grep -q '^probecheck:'; then
             npm dist-tag rm opencode-thinking-fix probecheck
           else
