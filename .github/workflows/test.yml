@@ -46,42 +46,40 @@ jobs:
   publish-npm:
     name: publish-npm
     needs: validate
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Tags publish; workflow_dispatch re-publishes the current version without a new commit.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    # OIDC trusted publishing: npm verifies the short-lived workflow identity token
+    # against the trusted publisher configured on npmjs.com. No NPM_TOKEN secret.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          # npm docs: never use dependency caching in a publish workflow — a poisoned
+          # cache is a credential-exposure surface.
+          package-manager-cache: false
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci
-      # npm answers a missing or read-only token with `404 Not Found - PUT`, which reads like a
-      # missing package. Check the token and the tag/version pairing here so the failure names
-      # the actual problem instead of pointing at the registry.
-      - name: Preflight — token, tag and version
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Under OIDC there is no token to check and `npm whoami` does not authenticate,
+      # so the preflight narrows to the tag/version pairing that guards against
+      # publishing under the wrong number.
+      - name: Preflight — tag and version
         run: |
           set -euo pipefail
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "::error title=NPM_TOKEN is empty::Add an npm token with read and write access to opencode-thinking-fix as the NPM_TOKEN repository secret."
-            exit 1
-          fi
           version="$(node -p "require('./package.json').version")"
-          tag="${GITHUB_REF_NAME#v}"
-          if [ "$version" != "$tag" ]; then
-            echo "::error title=Tag/version mismatch::Tag is v${tag} but package.json says ${version}. Bump one so the publish cannot land under the wrong number."
-            exit 1
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$version" != "$tag" ]; then
+              echo "::error title=Tag/version mismatch::Tag is v${tag} but package.json says ${version}. Bump one so the publish cannot land under the wrong number."
+              exit 1
+            fi
           fi
-          if ! who="$(npm whoami)"; then
-            echo "::error title=NPM_TOKEN rejected::npm whoami failed — the token is invalid, expired, or revoked."
-            exit 1
-          fi
-          echo "Authenticated as ${who}; package opencode-thinking-fix@${version}"
+          echo "package opencode-thinking-fix@${version} (ref: ${GITHUB_REF_NAME})"
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
@@ -89,9 +87,17 @@ jobs:
           # already out is a success, not a failure.
           if npm view "opencode-thinking-fix@${version}" version >/dev/null 2>&1; then
             echo "opencode-thinking-fix@${version} is already published — nothing to do (idempotent re-run)."
-            exit 0
+          else
+            npm publish --provenance
           fi
-          npm publish
+      - name: Remove stray probecheck dist-tag (one-off — delete this step once done)
+        run: |
+          set -euo pipefail
+          if npm dist-tag ls opencode-thinking-fix | grep -q '^probecheck:'; then
+            npm dist-tag rm opencode-thinking-fix probecheck
+          else
+            echo "probecheck dist-tag already absent — nothing to do"
+          fi
       - name: Verify the published tarball
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
