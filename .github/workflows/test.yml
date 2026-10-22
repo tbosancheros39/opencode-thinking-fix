@@ -98,21 +98,25 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
-          # The registry needs a moment before it serves a version that was just published.
-          # Packing immediately failed this step with ETARGET while the publish itself was
-          # fine, so wait for the version to become visible before unpacking it.
-          for attempt in $(seq 1 12); do
-            if npm view "opencode-thinking-fix@${version}" version >/dev/null 2>&1; then
+          # The registry's read replicas can serve a freshly published version a minute later,
+          # and `npm view` caches the miss. Poll the registry directly, cache-busted, for up to
+          # five minutes: the 60s window here once expired one second before the tarball was
+          # served, which reported a perfectly good release as missing.
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl -fsS "https://registry.npmjs.org/opencode-thinking-fix/${version}?t=$(date +%s%N)" >/dev/null; then
               echo "registry is serving ${version} (attempt ${attempt})"
+              ready=1
               break
             fi
-            if [ "${attempt}" -eq 12 ]; then
-              echo "::error title=Version not visible on npm::opencode-thinking-fix@${version} did not appear within 60s of a successful publish."
-              exit 1
-            fi
-            sleep 5
+            echo "attempt ${attempt}/30: ${version} not visible yet"
+            sleep 10
           done
-          npm pack "opencode-thinking-fix@${version}" --pack-destination "${RUNNER_TEMP}" >/dev/null
+          if [ "${ready}" -ne 1 ]; then
+            echo "::error title=Version not visible on npm::opencode-thinking-fix@${version} did not appear within 5 minutes of a successful publish."
+            exit 1
+          fi
+          npm pack "opencode-thinking-fix@${version}" --prefer-online --pack-destination "${RUNNER_TEMP}" >/dev/null
           tar -tzf "${RUNNER_TEMP}/opencode-thinking-fix-${version}.tgz" | sort > "${RUNNER_TEMP}/published.txt"
           cat "${RUNNER_TEMP}/published.txt"
           for required in package/proxy/core.js package/plugins/opencode-thinking-fix-universal.ts package/package.json; do
