@@ -210,7 +210,14 @@ As of 3.2.0, the plugin is optional. The shipped npm plugin still contains the t
 npm install opencode-thinking-fix
 ```
 
-Then add `"plugin": ["opencode-thinking-fix"]` to `opencode.json` and restart OpenCode.
+Then register it in `opencode.json` and restart OpenCode. The key depends on the OpenCode generation:
+
+| OpenCode | `opencode.json` |
+|----------|-----------------|
+| v2 (current) | `"plugins": ["opencode-thinking-fix"]` |
+| v1.18.29+ (legacy) | `"plugin": ["opencode-thinking-fix"]` |
+
+The same package covers both: OpenCode v2 reads the `Plugin.define({ id, setup })` export, v1 reads the `server()` export on the same default export.
 
 > **The plugin is a seatbelt, not the real fix.** It keeps the field present so requests don't 400, but it does not replay the model's actual prior reasoning. To make the model remember its earlier thinking, see [Full Setup: Proxy](#full-setup-proxy). For the trade-offs, see [Plugin details](#plugin-details-the-seatbelt).
 
@@ -218,7 +225,7 @@ Then add `"plugin": ["opencode-thinking-fix"]` to `opencode.json` and restart Op
 |--------|---------|----------|
 | **TUI** | `Ctrl+P` → type `install plugin` → `opencode-thinking-fix` | First-time users |
 | **CLI** | `opencode plugin opencode-thinking-fix` | Scripting |
-| **Manual** | Add `"plugin": ["opencode-thinking-fix"]` to `opencode.json` | Version pinning |
+| **Manual** | Add `"plugins": ["opencode-thinking-fix"]` (v2) or `"plugin": [...]` (v1) to `opencode.json` | Version pinning |
 
 #### Already installed? Update
 
@@ -249,6 +256,16 @@ opencode plugin opencode-thinking-fix@3.3.0
 Restart OpenCode after installing.
 
 #### Method 3: Manual config (add to `opencode.json`)
+
+OpenCode v2 uses the plural key:
+
+```json
+{
+  "plugins": ["opencode-thinking-fix"]
+}
+```
+
+On v1.18.29+ the same array goes under the legacy singular key instead:
 
 ```json
 {
@@ -285,7 +302,7 @@ cp plugins/opencode-thinking-fix-universal.ts ~/.config/opencode/plugins/
 cd ~/.config/opencode && npm i @opencode/plugin
 ```
 
-For the V2 API, add the package to `plugins` instead of `plugin`:
+Register the copy in `opencode.json` under `"plugins"` (v2) — a manual V1 copy uses `"plugin"` instead:
 
 ```jsonc
 {

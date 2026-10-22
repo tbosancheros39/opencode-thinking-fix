@@ -2,6 +2,12 @@
 
 All notable changes to `opencode-thinking-fix`.
 
+## 4.0.3 - 2026-10-22
+
+- **The install docs lead with the V2 config key.** OpenCode v2 registers plugins under `"plugins"`; the README still opened with the v1 `"plugin"` array and only mentioned `"plugins"` further down, which is the wrong way round for a V2 plugin. Quick install, manual config and the manual-copy note now show `"plugins"` first and keep `"plugin"` for v1.18.29+.
+- **CI tolerates the npm 12 `npm pack --json` shape.** npm 12 prints a map keyed by package name instead of an array, so the package-boundary check read `undefined` and crashed on a newer runner. It now accepts both shapes, and the obsolete one-off `dist-tag-cleanup.yml` workflow is gone.
+- **Release history is complete again.** The repository had no GitHub releases for 4.0.1 and 4.0.2, so its "latest release" still pointed at 4.0.0 while npm served 4.0.2. Both are published now, and 4.0.3 is the latest in both places.
+
 ## 4.0.2 - 2026-10-18
 
 - **Node 24 is the supported runtime.** `engines.node` is now `>=24` (was `>=18`) and `@types/node` moved from `^18` to `^24`, so the published package advertises the runtime it is actually built and tested against instead of one three majors behind.
