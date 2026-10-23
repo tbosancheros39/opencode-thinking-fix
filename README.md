@@ -341,7 +341,31 @@ The proxy runs on **two ports**:
 | Port | Purpose | Environment |
 |---|---|---|
 | **3457** | Direct providers (DeepSeek, Kimi, GLM, MiMo, GPT, Claude, Qwen, Gemini, etc.) | `PORT=3457` |
-| **3458** | OpenCode Go provider | `PORT=3458` `UPSTREAM_URL=https://opencode.ai/zen/go/v1` |
+| **3458** | OpenCode Go — chat + Responses wires | `PORT=3458` `UPSTREAM_URL=https://opencode.ai/inference/go/openai/v1` |
+| **3463** | OpenCode Go — Anthropic messages wire | `PORT=3463` `UPSTREAM_URL=https://opencode.ai/inference/go/anthropic/v1` |
+
+Port 3457 auto-routes based on model name using the built-in route table. Port 3458 is a fixed-upstream proxy for the OpenCode Go **chat and Responses** wires; the Anthropic Messages wire needs its own port (3463) because its upstream path differs. All of them are the same `proxy.js` binary with different environment variables.
+
+#### OpenCode Go: three wires, three base URLs (measured 2026-10-23)
+
+Go is not one protocol. Per the provider's own endpoint table, each model is served over exactly one of four wires, and the base URL differs per wire. Measured against the live gateway with a Go key:
+
+| Wire | Base URL to put in `UPSTREAM_URL` | Client `api` (pi-ai) | Models |
+|---|---|---|---|
+| OpenAI chat | `https://opencode.ai/inference/go/openai/v1` | `openai-completions` | beam-free, glm-5.1/5.2/5.3/5.3-flash, hy3, hy4-preview, kimi-k2.6, kimi-k2.7-code, kimi-k3, longcat-2.0, mimo-v2.5, mimo-v2.5-pro, mimo-v2.6-flash, mimo-v2.6-pro, minimax-m2.5, minimax-m3.1-flash, omen-alpha, qwen3.6-plus, qwen3.7-max, step-5-preview, deepseek-v4.1-flash, deepseek-v4-pro |
+| Anthropic messages | `https://opencode.ai/inference/go/anthropic/v1` | `anthropic-messages` | claude-haiku-5-5, minimax-m2.7, minimax-m3, qwen3.7-plus, qwen3.8-flash, qwen3.8-max |
+| OpenAI Responses | `https://opencode.ai/inference/go/openai/v1` | `openai-responses` | gpt-6-luna, gpt-5.6-luna, grok-4.6, grok-4.7, muse-spark-1.2-contributor, muse-spark-1.3-contributor |
+| Google | `https://opencode.ai/inference/go/google/v1beta/models/<id>` | `google` | gemini-4-argon-contributor |
+
+What that means for this proxy, all four points measured rather than inferred:
+
+1. **`zen/go/v1` is not a substitute for the Anthropic wire.** Chat works on both `zen/go/v1` and `inference/go/openai/v1`, but an Anthropic `/v1/messages` call to `zen/go/v1/messages` returns **401 `Go requires a credential`** while the same body and key at `inference/go/anthropic/v1/messages` returns 200. Run a second port for it:
+   `PORT=3463 UPSTREAM_URL=https://opencode.ai/inference/go/anthropic/v1 node proxy/proxy.js`.
+2. **An Anthropic client must not get a `/v1` base.** The Anthropic SDK appends `/v1/messages` itself, so a client base of `http://127.0.0.1:3463/v1` produces `/v1/v1/messages` and a **404 with an empty body**; use `http://127.0.0.1:3463`.
+3. **Wire is per model, so a chat-only lane silently 404s.** `grok-4.6` rejects both `/chat/completions` and `/v1/messages` with `ModelProtocolUnsupported` and only answers on `/responses`. Group models by wire instead of listing them all under one provider.
+4. **Auth works both ways.** `Authorization: Bearer <key>` and Anthropic-style `x-api-key` both return 200 on all three wires, so no header translation is needed. `x-opencode-session` remains mandatory; the proxy injects one when the client omits it (see the header block in `proxy.js`), which is what makes DeepSeek Harness usable against Go.
+
+Two further catalogue facts: the live `GET https://opencode.ai/inference/go/v1/models` list is authoritative (36 ids on 2026-10-23, including eight the docs page does not list: glm-5.1, grok-4.6, kimi-k2.6, minimax-m2.5, minimax-m2.7, omen-alpha, qwen3.6-plus, qwen3.7-max), and `longcat-2.5-preview-free` is documented but absent from that list, so it answers **429 `Endpoint is unavailable`**.
 
 Port 3457 auto-routes based on model name using the built-in route table. Port 3458 is a fixed-upstream proxy specifically for the OpenCode Go provider. It handles the provider's supported chat and Anthropic message dialects, while passing unsupported response formats through unchanged. Both are handled by the same `proxy.js` binary, just different environment variables.
 

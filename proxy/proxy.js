@@ -206,6 +206,10 @@ const server = http.createServer((req, res) => {
       headers: {
         ...safeHeaders,
         host: upstream.hostname,
+        // OpenCode Go requires a stable session id or it 400s with MissingSessionID.
+        ...(upstream.hostname.endsWith('opencode.ai')
+          ? { 'x-opencode-session': (sessionId && sessionId !== 'unknown') ? sessionId : 'dsh-go-session' }
+          : {}),
         'content-length': bodyToSend.length,
         'accept-encoding': 'identity', // force uncompressed so we can stream raw
       },
