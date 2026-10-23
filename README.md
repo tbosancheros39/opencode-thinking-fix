@@ -219,6 +219,8 @@ Then register it in `opencode.json` and restart OpenCode. The key depends on the
 
 The same package covers both: OpenCode v2 reads the `Plugin.define({ id, setup })` export, v1 reads the `server()` export on the same default export.
 
+> OpenCode loads the plugin itself. Registering it in `opencode.json` is the whole install. Loading it with `node require()` fails by design and is not a bug.
+
 > **The plugin is a seatbelt, not the real fix.** It keeps the field present so requests don't 400, but it does not replay the model's actual prior reasoning. To make the model remember its earlier thinking, see [Full Setup: Proxy](#full-setup-proxy). For the trade-offs, see [Plugin details](#plugin-details-the-seatbelt).
 
 | Method | Command | Best for |
@@ -421,11 +423,31 @@ opt-in alternatives for operators who want automatic restarts.
 
 #### Install as systemd services (auto-start at login)
 
-The units execute the script from a checkout at `~/opencode-thinking-fix` (`%h/opencode-thinking-fix/...`), so clone it there before installing them:
+Fresh Linux procedure. Node.js 24 or newer is required. The units execute the proxy from a checkout at `~/opencode-thinking-fix` (`%h/opencode-thinking-fix/proxy/proxy.cjs`).
+
+1) Clone to the path the units expect:
 
 ```bash
-git clone https://github.com/tbosancheros39/opencode-thinking-fix ~/opencode-thinking-fix
+git clone https://github.com/tbosancheros39/opencode-thinking-fix.git ~/opencode-thinking-fix
+```
+
+2) Enter the checkout:
+
+```bash
 cd ~/opencode-thinking-fix
+```
+
+3) Install the runtime dependency:
+
+```bash
+npm install --omit=dev
+```
+
+This pulls `eventsource-parser`, the one runtime dep. Skipping it makes the units die at boot with `ERR_MODULE_NOT_FOUND: Cannot find package 'eventsource-parser'`.
+
+4) Copy the six units:
+
+```bash
 mkdir -p ~/.config/systemd/user
 cp systemd/reasoning-cache.service ~/.config/systemd/user/
 cp systemd/reasoning-cache-go.service ~/.config/systemd/user/
@@ -433,14 +455,30 @@ cp systemd/reasoning-cache-go-anthropic.service ~/.config/systemd/user/
 cp systemd/reasoning-cache-zen.service ~/.config/systemd/user/
 cp systemd/reasoning-cache-openrouter.service ~/.config/systemd/user/
 cp systemd/reasoning-proxy-watchdog.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now reasoning-cache.service
-systemctl --user enable --now reasoning-cache-go.service
-systemctl --user enable --now reasoning-cache-go-anthropic.service
-systemctl --user enable --now reasoning-cache-zen.service
-systemctl --user enable --now reasoning-cache-openrouter.service
-systemctl --user enable --now reasoning-proxy-watchdog.service
 ```
+
+5) Reload user units:
+
+```bash
+systemctl --user daemon-reload
+```
+
+6) Enable the router lane:
+
+```bash
+systemctl --user enable --now reasoning-cache.service
+```
+
+Repeat `enable --now` for the other lanes: `reasoning-cache-go.service` (3458), `reasoning-cache-go-anthropic.service` (3463), `reasoning-cache-zen.service` (3459), `reasoning-cache-openrouter.service` (3462), `reasoning-proxy-watchdog.service`.
+
+7) Verify:
+
+```bash
+systemctl --user status reasoning-cache.service
+journalctl --user -u reasoning-cache.service
+```
+
+Alternative: if you installed via npm (`node_modules/opencode-thinking-fix`), deps are present already. Run `node path/to/proxy/proxy.js` directly with no clone. The shipped units point at `~/opencode-thinking-fix`, so point them at that npm path instead before enabling.
 
 Then point OpenCode at it, in your `opencode.json`:
 
@@ -691,17 +729,54 @@ OpenCode v1.17.9+ (V1 plugin), OpenCode v2.0+ (V2 plugin), DeepSeek V4 Pro, Kimi
 
 ### Windows notes
 
-**Plugin and proxy work fully on Windows.** The proxy (`proxy.js`) uses one runtime dependency (`eventsource-parser`) plus Node.js built-in modules (`http`, `https`, `url`). No platform-specific code. Start it with:
+Fresh Windows procedure. Windows has no systemd. Node.js 24 or newer is required.
+
+1) Install Node.js 24 or newer from nodejs.org, then verify:
 
 ```powershell
-# PowerShell
-$env:PORT=3457; node proxy\proxy.js
+node --version
 ```
 
-**Watchdog and systemd are Linux-only.** For Windows auto-restart, use **Task Scheduler** or **NSSM** (Non-Sucking Service Manager) to run the proxy as a Windows service:
+2) Get the code with deps. Pick one path. Path A (npm, deps included):
 
 ```powershell
-# Using NSSM (install once: winget install nssm)
+npm install opencode-thinking-fix
+```
+
+The proxy lives at `node_modules/opencode-thinking-fix/proxy/proxy.js`. Path B (clone, then install deps):
+
+```bash
+git clone https://github.com/tbosancheros39/opencode-thinking-fix.git
+cd opencode-thinking-fix
+npm install --omit=dev
+```
+
+This pulls `eventsource-parser`, the one runtime dep. Skipping it fails at start with `ERR_MODULE_NOT_FOUND: Cannot find package 'eventsource-parser'`.
+
+3) Start the proxy:
+
+```powershell
+$env:PORT=3457
+node proxy/proxy.js
+```
+
+CMD equivalent: `set PORT=3457 && node proxy\proxy.js`.
+
+Path A start: run from the folder where you ran the install, pointing at the package path:
+
+```powershell
+node node_modules/opencode-thinking-fix/proxy/proxy.js
+```
+
+4) Auto-start. Pick one. Task Scheduler (built in):
+
+```powershell
+schtasks /create /tn ReasoningCacheProxy /sc onlogon /tr "cmd /c set PORT=3457 && cd /d C:\path\to\opencode-thinking-fix && node proxy\proxy.js"
+```
+
+NSSM service (install once: `winget install nssm`):
+
+```powershell
 nssm install ReasoningCacheProxy node.exe proxy\proxy.js
 nssm set ReasoningCacheProxy AppDirectory C:\path\to\opencode-thinking-fix
 nssm set ReasoningCacheProxy AppEnvironmentExtra PORT=3457
@@ -709,6 +784,8 @@ nssm start ReasoningCacheProxy
 ```
 
 Repeat for the two Go proxies: `PORT=3458` with `UPSTREAM_URL=https://opencode.ai/inference/go/openai/v1` (chat + Responses) and `PORT=3463` with `UPSTREAM_URL=https://opencode.ai/inference/go/anthropic/v1` (Anthropic messages).
+
+5) The plugin part matches the Linux flow: `opencode plugin opencode-thinking-fix`, register `plugins` (OpenCode v2) or `plugin` (OpenCode v1.18.29+) in `opencode.json`, restart OpenCode.
 
 **OpenCode config paths on Windows:**
 

@@ -70,7 +70,12 @@ V2: add the npm package to `plugins` in `opencode.json(c)` (`{"plugins": ["openc
 # the units run the script from a checkout at ~/opencode-thinking-fix
 git clone https://github.com/tbosancheros39/opencode-thinking-fix ~/opencode-thinking-fix
 cd ~/opencode-thinking-fix
+npm install --omit=dev
+```
 
+A fresh checkout needs `npm install --omit=dev` before any start or systemd enable. It pulls `eventsource-parser`, the one runtime dep. Without it the proxy dies at boot with `ERR_MODULE_NOT_FOUND: Cannot find package 'eventsource-parser'`. Fix: `cd ~/opencode-thinking-fix && npm install --omit=dev`.
+
+```bash
 # Start proxy for direct providers (port 3457)
 node proxy/proxy.js &
 
@@ -300,6 +305,8 @@ Implemented in `proxy/core.js` `ROUTES` as three new entries in 2026-09-03; two 
 
 ## Troubleshooting
 
+- **Proxy dies after a fresh clone with `ERR_MODULE_NOT_FOUND: Cannot find package 'eventsource-parser'`**: the checkout ships without installed deps. Fix: `cd ~/opencode-thinking-fix && npm install --omit=dev`, then restart the proxy or re-enable the unit.
+- **Plugin fails under raw `node require()`**: designed behavior. The plugin loads through OpenCode. Register it in `opencode.json` and restart OpenCode. Do not `require()` it from node directly.
 - **Plugin not loading**: check `~/.config/opencode/plugins/` (plural with 's'), not `plugin/`. OpenCode reads from `plugins/` directory.
 - **Broken plugin dependency**: check for `@opencode-ai/plugin` in `~/.config/opencode/node_modules/`, delete it if present (causes conflicts).
 - **Proxy not starting**: check port conflicts with `lsof -i :3457` or `lsof -i :3458`.
