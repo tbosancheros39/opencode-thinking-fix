@@ -104,7 +104,12 @@ jobs:
           # served, which reported a perfectly good release as missing.
           ready=0
           for attempt in $(seq 1 30); do
-            if curl -fsS "https://registry.npmjs.org/opencode-thinking-fix/${version}?t=$(date +%s%N)" >/dev/null; then
+            # Probe with npm itself, not curl: on 2026-10-23 the origin packument
+            # answered curl while a read replica still served a stale packument to
+            # npm pack, so the tarball check died on ETARGET even though the
+            # version was published. Only when npm itself resolves the version is
+            # it safe to pack and diff the tarball; keep polling up to five minutes.
+            if npm view "opencode-thinking-fix@${version}" version --prefer-online 2>/dev/null | grep -qx "${version}"; then
               echo "registry is serving ${version} (attempt ${attempt})"
               ready=1
               break
