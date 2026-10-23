@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenCode Reasoning Cache Proxy - OpenRouter (port 3462, fixed upstream openrouter)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/opencode-thinking-fix/proxy
+ExecStart=/usr/bin/stdbuf -oL /usr/bin/node %h/opencode-thinking-fix/proxy/proxy.cjs
+Restart=always
+RestartSec=3
+Environment=UPSTREAM_TIMEOUT=600000
+Environment=PORT=3462
+Environment=UPSTREAM_URL=https://openrouter.ai/api/v1
+Environment=REASONING_KEY=reasoning_content
+StandardOutput=journal
+StandardError=journal
+
+# user scope: default.target
+[Install]
+WantedBy=default.target

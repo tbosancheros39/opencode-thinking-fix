@@ -44,7 +44,7 @@
 // Deployment:
 //   node proxy.js
 //   PORT=3457  (universal model-routing proxy)
-//   PORT=3458 UPSTREAM_URL=https://opencode.ai/zen/go/v1  (OpenCode Go proxy)
+//   PORT=3458 UPSTREAM_URL=https://opencode.ai/inference/go/openai/v1  (OpenCode Go chat + Responses)
 //   In opencode.json: set baseURL to http://127.0.0.1:<PORT>/v1
 //
 // Optional env:
@@ -321,7 +321,7 @@ const server = http.createServer((req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  writeLog({ event: 'proxy_started', port: PORT, version: '3.2.0', upstream: UPSTREAM_URL || 'model-routing', pid: process.pid })
+  writeLog({ event: 'proxy_started', port: PORT, version: '4.0.4', upstream: UPSTREAM_URL || 'model-routing', pid: process.pid })
   if (UPSTREAM_URL) {
     console.log(`[Proxy] fixed-upstream proxy on http://127.0.0.1:${PORT} -> ${UPSTREAM_URL}`)
   } else {

@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenCode Reasoning Cache Proxy - Go provider, Anthropic messages wire (port 3463)
+After=network-online.target reasoning-cache.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/opencode-thinking-fix/proxy
+ExecStart=/usr/bin/stdbuf -oL /usr/bin/node %h/opencode-thinking-fix/proxy/proxy.cjs
+Restart=on-failure
+RestartSec=5
+Environment=UPSTREAM_TIMEOUT=600000
+Environment=PORT=3463
+Environment=UPSTREAM_URL=https://opencode.ai/inference/go/anthropic/v1
+StandardOutput=journal
+StandardError=journal
+
+# user scope: default.target
+[Install]
+WantedBy=default.target

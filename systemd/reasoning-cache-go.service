@@ -1,17 +1,20 @@
 [Unit]
-Description=OpenCode Reasoning Cache Proxy — Go Provider
+Description=OpenCode Reasoning Cache Proxy - Go provider, chat + Responses wires (port 3458)
 After=network-online.target reasoning-cache.service
+Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/reasoning-cache-proxy
-ExecStart=/usr/bin/node %h/reasoning-cache-proxy/proxy.js
+WorkingDirectory=%h/opencode-thinking-fix/proxy
+ExecStart=/usr/bin/stdbuf -oL /usr/bin/node %h/opencode-thinking-fix/proxy/proxy.cjs
 Restart=on-failure
 RestartSec=5
+Environment=UPSTREAM_TIMEOUT=600000
 Environment=PORT=3458
-Environment=UPSTREAM_URL=https://opencode.ai/zen/go/v1
+Environment=UPSTREAM_URL=https://opencode.ai/inference/go/openai/v1
 StandardOutput=journal
 StandardError=journal
 
+# user scope: default.target
 [Install]
 WantedBy=default.target

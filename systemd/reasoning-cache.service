@@ -1,16 +1,19 @@
 [Unit]
-Description=OpenCode Reasoning Cache Proxy
+Description=OpenCode Reasoning Cache Proxy (port 3457, universal model routing)
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/reasoning-cache-proxy
-ExecStart=/usr/bin/node %h/reasoning-cache-proxy/proxy.js
+WorkingDirectory=%h/opencode-thinking-fix/proxy
+ExecStart=/usr/bin/stdbuf -oL /usr/bin/node %h/opencode-thinking-fix/proxy/proxy.cjs
 Restart=on-failure
 RestartSec=5
+Environment=UPSTREAM_TIMEOUT=600000
 Environment=PORT=3457
 StandardOutput=journal
 StandardError=journal
 
+# user scope: default.target
 [Install]
 WantedBy=default.target

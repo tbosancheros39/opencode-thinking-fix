@@ -15,7 +15,8 @@ Reasoning models emit chain-of-thought in provider-specific fields (`reasoning_c
 ## Architecture
 
 - Port **3457**: model-based routing (model prefixes → upstream APIs)
-- Port **3458**: fixed upstream to OpenCode Go (`https://opencode.ai/zen/go/v1`)
+- Port **3458**: fixed upstream to OpenCode Go chat + Responses (`https://opencode.ai/inference/go/openai/v1`)
+- Port **3463**: fixed upstream to OpenCode Go Anthropic messages (`https://opencode.ai/inference/go/anthropic/v1`)
 - Port **3459**: fixed upstream to OpenCode Zen (`https://opencode.ai/zen/v1`); set `REASONING_KEY=reasoning_content`
 - Port **3462**: fixed upstream to OpenRouter (`https://openrouter.ai/api/v1`); set `REASONING_KEY=reasoning_content`
 
@@ -29,11 +30,14 @@ Reasoning models emit chain-of-thought in provider-specific fields (`reasoning_c
 ├── watchdog/watchdog.sh                         → auto-recovery script
 ├── systemd/
 │   ├── reasoning-cache.service                  → port 3457 systemd unit
-│   ├── reasoning-cache-go.service               → port 3458 systemd unit
+│   ├── reasoning-cache-go.service               → port 3458 systemd unit (chat + Responses)
+│   ├── reasoning-cache-go-anthropic.service     → port 3463 systemd unit (Anthropic wire)
+│   ├── reasoning-cache-zen.service              → port 3459 systemd unit
+│   ├── reasoning-cache-openrouter.service       → port 3462 systemd unit
 │   └── reasoning-proxy-watchdog.service         → watchdog systemd unit
 └── tests/
     ├── test-plugin.js                           → 12 plugin tests
-    └── test-proxy.js                            → 127 proxy tests
+    └── test-proxy.js                            → 214 proxy tests
 ```
 
 ## Prerequisites
@@ -63,12 +67,12 @@ V2: add the npm package to `plugins` in `opencode.json(c)` (`{"plugins": ["openc
 ### Step 2: Install and Start the Proxy
 
 ```bash
-mkdir -p ~/reasoning-cache-proxy
-cp proxy/core.js ~/reasoning-cache-proxy/
-cp proxy/proxy.js ~/reasoning-cache-proxy/
+# the units run the script from a checkout at ~/opencode-thinking-fix
+git clone https://github.com/tbosancheros39/opencode-thinking-fix ~/opencode-thinking-fix
+cd ~/opencode-thinking-fix
 
 # Start proxy for direct providers (port 3457)
-node ~/reasoning-cache-proxy/proxy.js &
+node proxy/proxy.js &
 
 # OR via systemd:
 cp systemd/reasoning-cache.service ~/.config/systemd/user/
@@ -76,7 +80,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now reasoning-cache.service
 
 # Start proxy for OpenCode Go (port 3458)
-PORT=3458 UPSTREAM_URL=https://opencode.ai/zen/go/v1 node ~/reasoning-cache-proxy/proxy.js &
+PORT=3458 UPSTREAM_URL=https://opencode.ai/inference/go/openai/v1 node ~/opencode-thinking-fix/proxy/proxy.js &
 
 # OR via systemd:
 cp systemd/reasoning-cache-go.service ~/.config/systemd/user/
@@ -125,7 +129,7 @@ For OpenCode Go, use a second PowerShell window:
 
 ```powershell
 $env:PORT = '3458'
-$env:UPSTREAM_URL = 'https://opencode.ai/zen/go/v1'
+$env:UPSTREAM_URL = 'https://opencode.ai/inference/go/openai/v1'
 node (Join-Path $proxyDir 'proxy.js')
 ```
 
@@ -157,7 +161,7 @@ nssm start ReasoningCacheProxy
 ```
 
 Repeat with a second service and `PORT=3458` plus
-`UPSTREAM_URL=https://opencode.ai/zen/go/v1` if the OpenCode Go route is needed.
+`UPSTREAM_URL=https://opencode.ai/inference/go/openai/v1` if the OpenCode Go route is needed.
 
 ### Step 3: Configure OpenCode
 
@@ -185,8 +189,8 @@ Authenticate OpenCode Go through its `/connect` command, then edit
 ### Step 4: Install Watchdog (Optional)
 
 ```bash
-cp watchdog/watchdog.sh ~/reasoning-cache-proxy/
-chmod +x ~/reasoning-cache-proxy/watchdog.sh
+cp watchdog/watchdog.sh ~/opencode-thinking-fix/watchdog/
+chmod +x ~/opencode-thinking-fix/watchdog/watchdog.sh
 cp systemd/reasoning-proxy-watchdog.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now reasoning-proxy-watchdog.service
@@ -201,8 +205,8 @@ curl http://127.0.0.1:3457/health  # → {"ok":true}
 curl http://127.0.0.1:3458/health  # → {"ok":true}
 
 # Run tests:
-node ~/reasoning-cache-proxy/test-plugin.js  # 12/12 should pass
-node ~/reasoning-cache-proxy/test-proxy.js   # 95/95 should pass
+node ~/opencode-thinking-fix/tests/test-plugin.js  # 12/12 should pass
+node ~/opencode-thinking-fix/tests/test-proxy.js   # 214/214 should pass
 ```
 
 ## How the Plugin Works
@@ -234,7 +238,7 @@ node ~/reasoning-cache-proxy/test-proxy.js   # 95/95 should pass
 Implemented in `proxy/core.js` as `applyProviderBodyInjections(modelName, body, routeTarget)`, called from `proxy.js` next to F9 (Kimi sampling-params) and F10 (MiniMax `reasoning_split`).
 
 - **Rule.** If the model name starts with `glm` or `zhipu` AND `routeTarget.base` matches a Z.ai-reachable host allowlist, inject `body.thinking = { ...body.thinking, clear_thinking: false }`.
-- **Allowlist** (in `isZAiReachableBase`): `open.bigmodel.cn` (BigModel direct, port 3457), `api.z.ai` (Z.ai intl, forward-compat), `opencode.ai/zen/go*` (Go gateway, port 3458), `openrouter.ai` (port 3462). Anything else → no injection.
+- **Allowlist** (in `isZAiReachableBase`): `open.bigmodel.cn` (BigModel direct, port 3457), `api.z.ai` (Z.ai intl, forward-compat), `opencode.ai/zen/go*` and `opencode.ai/inference/go*` (Go gateway, ports 3458 and 3463), `openrouter.ai` (port 3462). Anything else → no injection.
 - **Skip conditions.** (a) `body.thinking === false` (client explicitly disabled thinking — incoherent to force preserved thinking on top). (b) `body` is null/array. (c) `routeTarget` is null. (d) `modelName` is empty.
 - **Return shape.** `{ body, modified, injections: [{ tag, field, value }] }`. `proxy.js` logs each injection via `writeLog({ event: 'provider_injection', ... })`.
 - **Docs authority.** `https://docs.z.ai/guides/capabilities/thinking-mode` (Preserved Thinking section) and `https://docs.z.ai/api-reference/llm/chat-completion` (`thinking.clear_thinking`, default `true`).
@@ -242,9 +246,9 @@ Implemented in `proxy/core.js` as `applyProviderBodyInjections(modelName, body, 
 
 ## F19 — InclusionAI Ling 3.0 Flash route (2026-09-03)
 
-Implemented in `proxy/core.js` `ROUTES` as three new entries. No code change to the proxy logic — only the route table.
+Implemented in `proxy/core.js` `ROUTES` as three new entries in 2026-09-03; two remain, because the Zen `-fin-free` entry was retired on 2026-10-23. No code change to the proxy logic — only the route table.
 
-- **Rule.** Models starting with `inclusionai/ling-3.0-flash` (with or without `:free` suffix) resolve to `https://openrouter.ai/api/v1` with `reasoningKey: 'reasoning_content'`. The prefixed form `opencode/ling-3.0-flash-fin-free` resolves to the existing OpenCode Zen free-tier lane (`https://opencode.ai/zen/v1`) — without this entry the prefixed id would fall through to the DeepSeek default and fail.
+- **Rule.** Models starting with `inclusionai/ling-3.0-flash` (with or without `:free` suffix) resolve to `https://openrouter.ai/api/v1` with `reasoningKey: 'reasoning_content'`. The prefixed form `opencode/ling-3.0-flash-fin-free` used to resolve to the OpenCode Zen free-tier lane; on 2026-10-23 that form was retired — `ling-3.0-flash-fin-free` is absent from the live Zen catalogue, so the route was removed. The OpenRouter `inclusionai/ling-3.0-flash` entries remain.
 - **OpenRouter response shape.** `choices[0].message.reasoning` (string) + `choices[0].message.reasoning_details` (array of `{type: "reasoning.text", text, format: "unknown", index}`). OpenRouter accepts `reasoning_content` as an input alias of `reasoning` on messages and normalizes on outbound to the upstream (Novita, DeepInfra). The passback key `reasoning_content` is what the proxy stores and re-injects; the response field the proxy caches is `delta.reasoning` (and `delta.reasoning_details` for the array form).
 - **Skip conditions.** None — these routes are unconditionally active. Non-reasoning models (`gpt`, `claude`, etc.) are not affected because the route only fires when the model name starts with `inclusionai/ling-3.0-flash`.
 - **Live verification.** Two-turn reasoning-continuity test on port 3457: turn 1 emitted 271 chars of reasoning on a 7×6 step-by-step; turn 2 (with cached `reasoning_content` echoed back) referenced the prior step ("The user previously asked for 7 times 6, and I was in the process of showing step-by-step work. The result of 7 × 6 is 42.") and continued to 42+5=47. Upstream was Novita.
@@ -255,7 +259,7 @@ Implemented in `proxy/core.js` `ROUTES` as three new entries. No code change to 
 
 | Prefix | Upstream | Reasoning |
 |---|---|---|
-| Zen free-tier bare ids (`x-preview-f-free`, `hy3-free`, `mimo-v2.5-free`, `muse-spark-1.2-contributor-free`, `deepseek-v4-flash-free`, `ling-3.0-flash-fin-free`, `laguna-s-2.1-free`, `big-pickle`, `ox-alpha-free`, `nemotron-3-ultra-free`, `nemotron-3.5-lightning-free`) | `https://opencode.ai/zen/v1` | Yes (`reasoning_content`) |
+| Zen free-tier bare ids (`beam-free`, `deepseek-v4.1-flash-free`, `flint-40b-free`, `glm-5.3-flash-free`, `jev-1.13-free`, `mimo-v2.6-flash-free`, `nemotron-3.5-lightning-free`, `nemotron-3.5-super-vl-free`, plus `big-pickle`) — re-synced 2026-10-23 | `https://opencode.ai/zen/v1` | Yes (`reasoning_content`) |
 | `opencode/` + free ids (same set with prefix) | `https://opencode.ai/zen/v1` | Yes (`reasoning_content`) |
 | `deepseek` | `https://api.deepseek.com` | Yes |
 | `deepseek-chat` | `https://api.deepseek.com` | Yes — non-thinking alias, passback is a no-op |
@@ -292,7 +296,7 @@ Implemented in `proxy/core.js` `ROUTES` as three new entries. No code change to 
 5. Logging: proxy = console→journal (DEBUG-gated) + `writeLog` JSONL (ungated); plugin keeps its own `writeLog`. No winston/pino. systemd units stay `Type=simple`/journal/`%h`.
 6. Git: agents never run git commit/push/add/checkout. Working tree only; human publishes via branch + squash merge.
 7. Upstream path handling (`upstreamPathFor` in core.js): if the client URL already starts with the upstream's official base path (e.g. OpenRouter `/api/v1`), forward as-is; never double the prefix.
-8. F19 (2026-09-03) routes are port-3457-only and pure ROUTES entries: `inclusionai/ling-3.0-flash` and `inclusionai/ling-3.0-flash:free` → `https://openrouter.ai/api/v1` with `reasoningKey: 'reasoning_content'` (OR normalizes on outbound); `opencode/ling-3.0-flash-fin-free` → `https://opencode.ai/zen/v1` with `reasoningKey: 'reasoning_content'`. No body injection, no SSE-parser change, no plugin change. Distinction from F12: F19 is **route-only**; F12 is **body-injection** under a host allowlist.
+8. F19 (2026-09-03) routes are port-3457-only and pure ROUTES entries: `inclusionai/ling-3.0-flash` and `inclusionai/ling-3.0-flash:free` → `https://openrouter.ai/api/v1` with `reasoningKey: 'reasoning_content'` (OR normalizes on outbound); `opencode/ling-3.0-flash-fin-free` routed to `https://opencode.ai/zen/v1` until 2026-10-23, when the id disappeared from the live Zen catalogue and the entry was removed (it now resolves to DEFAULT_ROUTE). No body injection, no SSE-parser change, no plugin change. Distinction from F12: F19 is **route-only**; F12 is **body-injection** under a host allowlist.
 
 ## Troubleshooting
 

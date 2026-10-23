@@ -43,30 +43,22 @@ export const ROUTES = {
   // section (port 3459, universal mode). MUST stay at the top: generic
   // prefixes below ('deepseek-v4-flash', 'mimo', ...) would otherwise swallow
   // these names and route free traffic to provider-native endpoints.
-  'x-preview-f-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'hy3-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'mimo-v2.5-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'muse-spark-1.2-contributor-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  // Step 5 Preview Free (StepFun): Zen free lane, chat/completions wire,
-  // reasoning model with interleaved reasoning_content (verified 2026-10-12
-  // against opencode.ai/docs/zen endpoints table + bundled model catalog).
-  'step-5-preview-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'muse-spark-1.3-contributor-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  // 2026-10-18 models --refresh: newly published Zen free-tier models
+  // Re-synced 2026-10-23 against GET http://127.0.0.1:3459/v1/models: 85 ids,
+  // 8 free. The 13 ids removed here are gone upstream — absent from that list,
+  // or answering 410 ModelDeprecated / 400 "Model is unavailable":
+  // x-preview-f-free, hy3-free, mimo-v2.5-free, muse-spark-1.2-contributor-free,
+  // muse-spark-1.3-contributor-free, step-5-preview-free, longcat-2.5-preview-free,
+  // space-bunny-free, deepseek-v4-flash-free, ling-3.0-flash-fin-free,
+  // laguna-s-2.1-free, ox-alpha-free, nemotron-3-ultra-free.
   'beam-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'deepseek-v4.1-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'flint-40b-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'glm-5.3-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'longcat-2.5-preview-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'jev-1.13-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'mimo-v2.6-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'nemotron-3.5-super-vl-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'space-bunny-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'deepseek-v4-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'ling-3.0-flash-fin-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'laguna-s-2.1-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'big-pickle': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'ox-alpha-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'nemotron-3-ultra-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'nemotron-3.5-lightning-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'nemotron-3.5-super-vl-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'big-pickle': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   // R1 aliases: reasoning must not be echoed back — the 'strip' sentinel
   // admits the request to patchRequestBody (to REMOVE any reasoning fields a
   // client/plugin attached) while excluding it from response-side caching.
@@ -93,23 +85,18 @@ export const ROUTES = {
   // opencode/ zen free-tier models — served by the OpenCode zen gateway at
   // zen/v1 (chat/completions wire, reasoning_content carrier). Distinct from
   // the opencode-go namespace (port 3458) handled by fixedUpstreamRoute.
-  // Explicit per-model prefixes only: no catch-all `opencode/` prefix, so paid
-  // opencode/* models keep their existing DEFAULT_ROUTE behavior.
-  'opencode/hy3-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'opencode/mimo-v2.5-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'opencode/muse-spark-1.2-contributor-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'opencode/muse-spark-1.3-contributor-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'opencode/step-5-preview-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  // The form the OpenCode client actually sends (`opencode/<id>`). Same 8 ids
+  // as the bare lane above, re-synced 2026-10-23. Explicit per-model prefixes
+  // only: no catch-all `opencode/` prefix, so paid opencode/* models keep
+  // their existing DEFAULT_ROUTE behavior.
   'opencode/beam-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'opencode/deepseek-v4.1-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'opencode/flint-40b-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'opencode/glm-5.3-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'opencode/longcat-2.5-preview-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'opencode/jev-1.13-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'opencode/mimo-v2.6-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'opencode/nemotron-3.5-super-vl-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'opencode/space-bunny-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'opencode/deepseek-v4-flash-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
-  'opencode/nemotron-3-ultra-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   'opencode/nemotron-3.5-lightning-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
+  'opencode/nemotron-3.5-super-vl-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   // F19 (2026-09-03): InclusionAI Ling 3.0 Flash — Chinese MoE reasoning model
   // (124B/5.1B active, 262K ctx). Primary distribution is OpenRouter
   // (`inclusionai/ling-3.0-flash` paid, `:free` free tier). On OR the response
@@ -120,11 +107,6 @@ export const ROUTES = {
   // `thinking.type: enabled|disabled`; not routed here (no client key).
   'inclusionai/ling-3.0-flash': { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' },
   'inclusionai/ling-3.0-flash:free': { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' },
-  // Zen free-tier lane: `opencode/ling-3.0-flash-fin-free` is served by the
-  // OpenCode Zen gateway at zen/v1 (chat/completions wire, DeepSeek-style
-  // `reasoning_content` carrier). Add the prefixed form here so 3457 model-
-  // routing sends it to Zen, not the default DeepSeek fallback.
-  'opencode/ling-3.0-flash-fin-free': { base: 'https://opencode.ai/zen/v1', reasoningKey: 'reasoning_content' },
   // Catch-all for future InclusionAI variants (Ling-2.x, Ring-2.6-1T, etc.)
   // that may be added to OpenRouter before this proxy gets a per-model entry.
   'inclusionai': { base: 'https://openrouter.ai/api/v1', reasoningKey: 'reasoning_content' },
@@ -426,7 +408,9 @@ export function createStreamParser(sessionId, baseIndex, onComplete) {
 // Z.ai-reachable hosts (allowlist, conservative):
 //   - open.bigmodel.cn       (BigModel direct, port 3457 universal mode)
 //   - api.z.ai               (Z.ai international, future-proofing)
-//   - opencode.ai/zen/go     (OpenCode Go gateway, port 3458)
+//   - opencode.ai/zen/go     (OpenCode Go gateway, legacy zen path)
+//   - opencode.ai/inference/go (OpenCode Go gateway as deployed since 2026-10-23:
+//                              ports 3458 chat+Responses and 3463 Anthropic)
 //   - openrouter.ai          (OpenRouter, port 3462; routes GLM to Z.ai under the hood)
 function isZAiReachableBase(base) {
   if (!base || typeof base !== 'string') return false
@@ -434,7 +418,7 @@ function isZAiReachableBase(base) {
   try { const u = new URL(base); host = u.hostname.toLowerCase(); path = u.pathname.toLowerCase() } catch { return false }
   if (host === 'open.bigmodel.cn') return true
   if (host === 'api.z.ai') return true
-  if (host === 'opencode.ai' && path.startsWith('/zen/go')) return true
+  if (host === 'opencode.ai' && (path.startsWith('/zen/go') || path.startsWith('/inference/go'))) return true
   if (host === 'openrouter.ai') return true
   return false
 }

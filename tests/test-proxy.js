@@ -82,27 +82,29 @@ eq(route('unknown-model').reasoningKey, null, 'R17. unknown -> reasoningKey null
 eq(route('').reasoningKey, null, 'R18. empty model -> DEFAULT_ROUTE (null)')
 
 // opencode/ zen free-tier pins: zen/v1 upstream, reasoning_content carrier.
-eq(route('opencode/deepseek-v4-flash-free').base, 'https://opencode.ai/zen/v1', 'R19. opencode/deepseek-v4-flash-free -> zen/v1')
-eq(route('opencode/deepseek-v4-flash-free').reasoningKey, 'reasoning_content', 'R19b. opencode/deepseek-v4-flash-free -> reasoning_content')
-eq(route('opencode/hy3-free').base, 'https://opencode.ai/zen/v1', 'R20. opencode/hy3-free -> zen/v1')
-eq(route('opencode/hy3-free').reasoningKey, 'reasoning_content', 'R20b. opencode/hy3-free -> reasoning_content')
-eq(route('opencode/mimo-v2.5-free').base, 'https://opencode.ai/zen/v1', 'R21. opencode/mimo-v2.5-free -> zen/v1')
-eq(route('opencode/mimo-v2.5-free').reasoningKey, 'reasoning_content', 'R21b. opencode/mimo-v2.5-free -> reasoning_content')
-eq(route('opencode/muse-spark-1.2-contributor-free').base, 'https://opencode.ai/zen/v1', 'R22. opencode/muse-spark-1.2-contributor-free -> zen/v1')
-eq(route('opencode/muse-spark-1.2-contributor-free').reasoningKey, 'reasoning_content', 'R22b. opencode/muse-spark-1.2-contributor-free -> reasoning_content')
-eq(route('opencode/nemotron-3-ultra-free').base, 'https://opencode.ai/zen/v1', 'R23. opencode/nemotron-3-ultra-free -> zen/v1')
-eq(route('opencode/nemotron-3-ultra-free').reasoningKey, 'reasoning_content', 'R23b. opencode/nemotron-3-ultra-free -> reasoning_content')
-eq(route('opencode/nemotron-3.5-lightning-free').base, 'https://opencode.ai/zen/v1', 'R24. opencode/nemotron-3.5-lightning-free -> zen/v1')
-eq(route('opencode/nemotron-3.5-lightning-free').reasoningKey, 'reasoning_content', 'R24b. opencode/nemotron-3.5-lightning-free -> reasoning_content')
+// Re-synced 2026-10-23 against GET /v1/models on the Zen relay (85 ids, 8 free).
+for (const free of ['beam-free', 'deepseek-v4.1-flash-free', 'flint-40b-free', 'glm-5.3-flash-free', 'jev-1.13-free', 'mimo-v2.6-flash-free', 'nemotron-3.5-lightning-free', 'nemotron-3.5-super-vl-free']) {
+  eq(route(`opencode/${free}`).base, 'https://opencode.ai/zen/v1', `R19. opencode/${free} -> zen/v1`)
+  eq(route(`opencode/${free}`).reasoningKey, 'reasoning_content', `R19b. opencode/${free} -> reasoning_content`)
+}
 
 // Paid opencode/* models must NOT match the -free entries (no catch-all).
 eq(route('opencode/gpt-5.5'), DEFAULT_ROUTE, 'R25. opencode/gpt-5.5 -> DEFAULT_ROUTE (paid, no -free entry)')
 eq(route('opencode/gpt-5.5').reasoningKey, null, 'R25b. opencode/gpt-5.5 -> reasoningKey null')
 
-// Bare zen free-tier ids (no `opencode/` prefix) — R26..R31 (2026-08-30)
-for (const bare of ['ling-3.0-flash-fin-free', 'laguna-s-2.1-free', 'big-pickle', 'ox-alpha-free', 'nemotron-3-ultra-free', 'nemotron-3.5-lightning-free']) {
+// Bare zen free-tier ids (no `opencode/` prefix) — R26, re-synced 2026-10-23.
+for (const bare of ['beam-free', 'deepseek-v4.1-flash-free', 'flint-40b-free', 'glm-5.3-flash-free', 'jev-1.13-free', 'mimo-v2.6-flash-free', 'nemotron-3.5-lightning-free', 'nemotron-3.5-super-vl-free', 'big-pickle']) {
   eq(route(bare).base, 'https://opencode.ai/zen/v1', `R26. bare ${bare} -> zen/v1`)
   eq(route(bare).reasoningKey, 'reasoning_content', `R26b. bare ${bare} -> reasoning_content`)
+}
+
+// R27: retired free ids must no longer be pinned to the Zen lane. They are
+// absent from the live catalogue (or answer 400), so a bare request for
+// one falls through to whatever generic prefix matches — never zen/v1 —
+// and the opencode/ form falls through to DEFAULT_ROUTE (no catch-all).
+for (const gone of ['x-preview-f-free', 'hy3-free', 'mimo-v2.5-free', 'muse-spark-1.2-contributor-free', 'muse-spark-1.3-contributor-free', 'step-5-preview-free', 'longcat-2.5-preview-free', 'space-bunny-free', 'deepseek-v4-flash-free', 'ling-3.0-flash-fin-free', 'laguna-s-2.1-free', 'ox-alpha-free', 'nemotron-3-ultra-free']) {
+  eq(route(gone).base !== 'https://opencode.ai/zen/v1', true, `R27. retired ${gone} is not routed to zen`)
+  eq(route(`opencode/${gone}`), DEFAULT_ROUTE, `R27b. retired opencode/${gone} -> DEFAULT_ROUTE`)
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -576,6 +578,16 @@ console.log('\n=== F12 provider body injection (Z.ai clear_thinking) tests ===\n
   eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-17b. thinking.clear_thinking = false injected on Go')
 }
 
+// F12-17c: the deployed Go upstream since 2026-10-23 is /inference/go/openai/v1 —
+// the allowlist must match that path too, or GLM on the Go lane silently loses
+// Preserved Thinking while the units look correct.
+{
+  const bj = { model: 'opencode-go/glm-5.3', messages: [{ role: 'user', content: 'hi' }] }
+  const r = applyProviderBodyInjections('opencode-go/glm-5.3', bj, { base: 'https://opencode.ai/inference/go/openai/v1', reasoningKey: 'reasoning_content' })
+  ok(r.modified === true, 'F12-17c. glm on inference/go/openai/v1 -> injection fires')
+  eq(bj.thinking && bj.thinking.clear_thinking, false, 'F12-17d. clear_thinking = false on the deployed Go upstream')
+}
+
 // F12-18: anthropic/glm-* or thudm/glm-* (any other gateway-prefixed glm) — F12 fires on Z.ai host.
 {
   const bj = { model: 'anthropic/glm-5', messages: [{ role: 'user', content: 'hi' }] }
@@ -613,18 +625,16 @@ console.log('\n=== F19 InclusionAI Ling 3.0 Flash route tests ===\n')
   eq(r.reasoningKey, 'reasoning_content', 'F19-2b. :free -> reasoning_content key')
 }
 
-// F19-3: opencode/ling-3.0-flash-fin-free -> zen/v1 (NOT DeepSeek default)
+// F19-3: the Zen `-fin-free` form is retired (2026-10-23) — it must not route to zen.
 {
   const r = route('opencode/ling-3.0-flash-fin-free')
-  eq(r.base, 'https://opencode.ai/zen/v1', 'F19-3. opencode/-fin-free -> zen/v1 (was DeepSeek default before F19)')
-  eq(r.reasoningKey, 'reasoning_content', 'F19-3b. opencode/-fin-free -> reasoning_content key')
+  eq(r.base !== 'https://opencode.ai/zen/v1', true, 'F19-3. retired opencode/-fin-free is not zen')
 }
 
-// F19-4: bare ling-3.0-flash-fin-free (no prefix) still goes to zen/v1
+// F19-4: same for the bare retired id.
 {
   const r = route('ling-3.0-flash-fin-free')
-  eq(r.base, 'https://opencode.ai/zen/v1', 'F19-4. bare ling-3.0-flash-fin-free -> zen/v1 (unchanged by F19)')
-  eq(r.reasoningKey, 'reasoning_content', 'F19-4b. bare -> reasoning_content key')
+  eq(r.base !== 'https://opencode.ai/zen/v1', true, 'F19-4. retired bare -fin-free is not zen')
 }
 
 // F19-5: a hypothetical paid inclusionai variant that does not start with
