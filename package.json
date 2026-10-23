@@ -1,6 +1,6 @@
 {
   "name": "opencode-thinking-fix",
-  "version": "4.0.4",
+  "version": "4.0.5",
   "description": "Restores reasoning content dropped from multi-turn OpenCode conversations (DeepSeek, Kimi, GLM, MiMo, MiniMax, InclusionAI/Ling, OpenCode Go, OpenRouter). V1 + V2 plugin, proxy, and watchdog.",
   "type": "module",
   "license": "MIT",
